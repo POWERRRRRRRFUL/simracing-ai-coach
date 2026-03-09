@@ -172,7 +172,12 @@ class AnalysisReport(BaseModel):
     llm_model: str
     llm_raw_response: str
 
-    # Structured sections parsed from LLM output
+    # Structured sections — populated when LLM returns valid JSON.
+    # Schema mirrors the four-section JSON contract defined in prompts.py.
+    structured_analysis: dict[str, Any] = Field(default_factory=dict)
+
+    # Legacy flat-string fields kept for backward-compat / no-API fallback.
+    # When structured_analysis is present these are populated from it too.
     best_vs_reference_analysis: str = ""
     session_findings: str = ""
     coaching_summary: str = ""

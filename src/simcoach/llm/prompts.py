@@ -1,57 +1,109 @@
 """
 Prompt templates for the sim racing AI coach.
 
-Design philosophy:
-- The system prompt frames the LLM as a motorsport performance analyst
-- The user prompt provides all telemetry context as structured JSON
-- We ask for structured output using named sections so the report
-  generator can parse each section independently
-- We deliberately do NOT hard-code driving rules — the LLM infers
-  them from the telemetry patterns
+Design:
+- LLM must output a single JSON object — no free-form prose allowed.
+- Each section has an explicitly exclusive scope so the model cannot
+  repeat itself across sections.
+- Scope rules are stated positively AND as explicit negatives:
+    best_lap_vs_reference  →  single-lap WHERE + WHY
+    session_findings       →  multi-lap HOW CONSISTENT (no single-lap details)
+    coaching_summary       →  synthesis bullets only (no new evidence)
+    next_training_focus    →  forward-looking drills only (no analysis)
 """
 
 from __future__ import annotations
 
-SYSTEM_PROMPT = """You are an expert motorsport performance analyst and sim racing coach.
-You analyse telemetry data from Assetto Corsa sessions and provide clear, actionable coaching feedback.
+# JSON schema description embedded in the system prompt.
+# Keeping it inline (not a separate schema file) makes the prompt self-contained.
 
-Your analysis should be:
-- Data-driven: reference specific track positions (pos field, 0.0=start/finish line, 1.0=end of lap)
-- Specific: identify exact braking zones, throttle application points, and steering patterns
-- Honest: if the data shows improvement over the reference, say so; if not, be direct
-- Actionable: each finding should lead to a concrete thing the driver can practise
+SYSTEM_PROMPT = """\
+You are an expert motorsport performance analyst and sim racing coach.
+You analyse Assetto Corsa telemetry and produce concise, structured coaching reports.
 
-The telemetry trace fields are:
-  pos  = normalized track position (0.0 → 1.0)
-  spd  = speed in km/h
-  thr  = throttle (0=none, 1=full)
-  brk  = brake (0=none, 1=full)
-  str  = steering (-1=full left, 1=full right)
-  gear = current gear
-  rpm  = engine RPM
+Telemetry trace field key:
+  pos  = normalised track position (0.0 = start/finish, 1.0 = end of lap)
+  spd  = speed km/h  |  thr = throttle 0-1  |  brk = brake 0-1
+  str  = steering -1 to +1  |  gear = gear number  |  rpm = engine RPM
 
-Respond EXACTLY in this format (keep the section headers exactly as written):
+════════════════════════════════════════
+OUTPUT FORMAT — MANDATORY
+════════════════════════════════════════
+You MUST respond with ONLY a valid JSON object. No markdown fences, no prose outside the JSON.
+The object must have exactly these four top-level keys:
 
-## Best Lap vs Reference
-[Detailed comparison of the best lap against the reference lap.
-Compare key zones: braking points, minimum speeds in corners, throttle application.
-Reference specific track positions using the pos values.
-If no reference lap is provided, note this and analyse the best lap on its own merits.]
+{
+  "best_lap_vs_reference": {
+    "summary": "<ONE sentence: total time delta and the single zone where most is lost>",
+    "time_loss_sections": [
+      "<pos range> (<zone name>): approx <delta>, <one-phrase cause>",
+      ...
+    ],
+    "main_causes": [
+      "<concise root-cause phrase>",
+      ...
+    ]
+  },
+  "session_findings": {
+    "consistency_note": "<ONE sentence describing lap-time spread across the session>",
+    "repeated_patterns": [
+      "<pattern that appears in multiple laps — reference lap numbers, not track positions>",
+      ...
+    ],
+    "outliers": [
+      "<single-lap anomaly with lap number>",
+      ...
+    ]
+  },
+  "coaching_summary": {
+    "top_takeaways": [
+      "<short bullet — at most 15 words>",
+      "<short bullet — at most 15 words>",
+      "<short bullet — at most 15 words>"
+    ]
+  },
+  "next_training_focus": {
+    "priorities": [
+      {"title": "<2-4 word drill name>", "action": "<one concrete sentence: what to do, not what the problem is>"},
+      {"title": "<2-4 word drill name>", "action": "<one concrete sentence>"}
+    ]
+  }
+}
 
-## Session Findings
-[Overall session trends across all laps.
-Note consistency, improvement patterns, or degradation.
-Comment on ABS/TC events if present.
-Keep this to 3–5 bullet points.]
+════════════════════════════════════════
+STRICT SCOPE RULES — READ CAREFULLY
+════════════════════════════════════════
 
-## Coaching Summary
-[2–3 paragraph narrative coaching summary.
-What is going well? What is the single biggest time gain available?
-Be encouraging but honest.]
+best_lap_vs_reference
+  ✓ Compare best lap to reference lap only.
+  ✓ Reference specific pos values from the trace data.
+  ✓ State approximately how much time is lost in each zone.
+  ✗ Do NOT mention session consistency, lap count, or improvement over sessions.
+  ✗ Do NOT give training recommendations here.
 
-## Next Training Focus
-[Exactly 3 specific, actionable focus areas for the next session.
-Format each as a numbered list item with a short title and one sentence of detail.]"""
+session_findings
+  ✓ Describe lap-to-lap consistency using lap numbers from all_lap_summaries.
+  ✓ Identify patterns that recur across multiple laps.
+  ✓ Note any outlier laps (e.g. out-lap, incident lap).
+  ✗ Do NOT repeat specific pos values or causes already stated in best_lap_vs_reference.
+  ✗ Do NOT recommend training actions here.
+
+coaching_summary
+  ✓ Exactly 3 takeaway bullets. Each ≤ 15 words.
+  ✓ Synthesise the single most important insight from each of the two sections above.
+  ✗ Do NOT introduce any new analysis, evidence, or data references.
+  ✗ Do NOT repeat track positions or lap numbers.
+
+next_training_focus
+  ✓ 2-3 priorities. Each is a specific, actionable drill for the next session.
+  ✓ "action" describes WHAT TO DO, not WHAT THE PROBLEM IS.
+  ✗ Do NOT restate problems or analysis from any section above.
+  ✗ Do NOT use phrases like "focus on" or "work on" — say exactly what to do.
+
+If there is no reference lap available, fill best_lap_vs_reference based on the best
+lap alone (compare first half of lap vs second half, or note what stands out in the
+trace), and state "No reference lap available" in the summary field.\
+"""
 
 
 def build_system_prompt() -> str:
@@ -59,11 +111,9 @@ def build_system_prompt() -> str:
 
 
 def build_user_prompt(context_json: str) -> str:
-    return f"""Here is the telemetry context from the latest Assetto Corsa session.
-Please analyse it according to your instructions.
-
-```json
-{context_json}
-```
-
-Provide your analysis now."""
+    return (
+        "Analyse the following Assetto Corsa session telemetry and respond with "
+        "the JSON object described in your instructions. "
+        "Do not add any text before or after the JSON.\n\n"
+        f"```json\n{context_json}\n```"
+    )

@@ -38,9 +38,16 @@ class LLMProvider:
         self,
         system_prompt: str,
         user_prompt: str,
+        json_mode: bool = False,
     ) -> str:
         """
         Send a chat completion request and return the assistant message content.
+
+        Args:
+            json_mode: Request ``response_format: {type: json_object}``.
+                       Supported by OpenAI GPT-4o / GPT-4o-mini and compatible
+                       providers.  For other endpoints the system prompt already
+                       demands JSON so this is a best-effort hint.
 
         Raises:
             httpx.HTTPStatusError: if the API returns a 4xx/5xx response.
@@ -55,6 +62,8 @@ class LLMProvider:
             "max_tokens": self._config.max_tokens,
             "temperature": self._config.temperature,
         }
+        if json_mode:
+            payload["response_format"] = {"type": "json_object"}
 
         response = self._client.post("/chat/completions", json=payload)
         response.raise_for_status()

@@ -170,15 +170,96 @@
     }
     @media (max-width: 800px) { .charts-grid { grid-template-columns: 1fr; } }
 
-    /* ── AI text sections ───────────────────────────────────────────────── */
+    /* ── AI text sections (legacy fallback) ─────────────────────────────── */
     .ai-text {
       line-height: 1.75;
       color: var(--text);
     }
-    .ai-text p { margin-bottom: 12px; }
-    .ai-text ul, .ai-text ol { padding-left: 20px; margin-bottom: 12px; }
-    .ai-text li { margin-bottom: 6px; }
-    .ai-text strong { color: var(--best); }
+
+    /* ── Structured AI sections ─────────────────────────────────────────── */
+    .ai-summary {
+      font-size: 1rem;
+      color: var(--text);
+      line-height: 1.65;
+      margin-bottom: 16px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    .ai-list {
+      list-style: none;
+      padding: 0;
+      margin: 0 0 12px;
+    }
+    .ai-list li {
+      padding: 7px 0 7px 18px;
+      position: relative;
+      color: var(--text);
+      font-size: 0.92rem;
+      line-height: 1.55;
+      border-bottom: 1px solid var(--border);
+    }
+    .ai-list li:last-child { border-bottom: none; }
+    .ai-list li::before {
+      content: '›';
+      position: absolute;
+      left: 0;
+      color: var(--accent2);
+      font-weight: 700;
+    }
+    .ai-list.outliers li::before { content: '!'; color: #f59e0b; }
+    .ai-subsection-label {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin: 14px 0 6px;
+    }
+    .ai-subsection-label:first-child { margin-top: 0; }
+    .tag-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 4px;
+    }
+    .tag {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 3px 12px;
+      font-size: 0.8rem;
+      color: var(--accent2);
+    }
+    .takeaway-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      counter-reset: takeaway;
+    }
+    .takeaway-list li {
+      counter-increment: takeaway;
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      padding: 9px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.95rem;
+    }
+    .takeaway-list li:last-child { border-bottom: none; }
+    .takeaway-list li::before {
+      content: counter(takeaway);
+      min-width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: #fff;
+      font-size: 0.72rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
 
     /* ── Focus items ────────────────────────────────────────────────────── */
     .focus-item {
@@ -189,6 +270,19 @@
       margin-bottom: 12px;
     }
     .focus-item:last-child { margin-bottom: 0; }
+    .focus-item .focus-title {
+      font-size: 0.85rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--accent);
+      margin-bottom: 5px;
+    }
+    .focus-item .focus-action {
+      font-size: 0.93rem;
+      color: var(--text);
+      line-height: 1.5;
+    }
 
     /* ── Footer ─────────────────────────────────────────────────────────── */
     .footer {
@@ -327,7 +421,92 @@
   </div>
 </div>
 
+{% if structured and structured.best_lap_vs_reference %}
+  {% set bvr = structured.best_lap_vs_reference %}
+  {% set sf  = structured.session_findings %}
+  {% set cs  = structured.coaching_summary %}
+  {% set ntf = structured.next_training_focus %}
+
 <!-- ── Best vs Reference Analysis ─────────────────────────────────────────── -->
+<div class="section">
+  <div class="section-title">Best Lap vs Reference</div>
+  <div class="card">
+    {% if bvr.summary %}
+    <p class="ai-summary">{{ bvr.summary }}</p>
+    {% endif %}
+    {% if bvr.time_loss_sections %}
+    <div class="ai-subsection-label">Time-loss zones</div>
+    <ul class="ai-list">
+      {% for item in bvr.time_loss_sections %}
+      <li>{{ item }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% if bvr.main_causes %}
+    <div class="ai-subsection-label">Root causes</div>
+    <div class="tag-row">
+      {% for cause in bvr.main_causes %}
+      <span class="tag">{{ cause }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ── Session Findings ────────────────────────────────────────────────────── -->
+<div class="section">
+  <div class="section-title">Session Findings</div>
+  <div class="card">
+    {% if sf.consistency_note %}
+    <p class="ai-summary">{{ sf.consistency_note }}</p>
+    {% endif %}
+    {% if sf.repeated_patterns %}
+    <div class="ai-subsection-label">Repeated patterns</div>
+    <ul class="ai-list">
+      {% for p in sf.repeated_patterns %}
+      <li>{{ p }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% if sf.outliers %}
+    <div class="ai-subsection-label">Outlier laps</div>
+    <ul class="ai-list outliers">
+      {% for o in sf.outliers %}
+      <li>{{ o }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ── Coaching Summary ────────────────────────────────────────────────────── -->
+<div class="section">
+  <div class="section-title">Coaching Summary</div>
+  <div class="card">
+    <ol class="takeaway-list">
+      {% for t in cs.top_takeaways %}
+      <li>{{ t }}</li>
+      {% endfor %}
+    </ol>
+  </div>
+</div>
+
+<!-- ── Next Training Focus ─────────────────────────────────────────────────── -->
+{% if ntf.priorities %}
+<div class="section">
+  <div class="section-title">Next Training Focus</div>
+  {% for p in ntf.priorities %}
+  <div class="focus-item">
+    <div class="focus-title">{{ p.title }}</div>
+    <div class="focus-action">{{ p.action }}</div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% else %}
+
+<!-- ── Best vs Reference Analysis (legacy) ────────────────────────────────── -->
 <div class="section">
   <div class="section-title">Best Lap vs Reference</div>
   <div class="card ai-text">
@@ -335,7 +514,7 @@
   </div>
 </div>
 
-<!-- ── Session Findings ────────────────────────────────────────────────────── -->
+<!-- ── Session Findings (legacy) ──────────────────────────────────────────── -->
 <div class="section">
   <div class="section-title">Session Findings</div>
   <div class="card ai-text">
@@ -343,7 +522,7 @@
   </div>
 </div>
 
-<!-- ── Coaching Summary ────────────────────────────────────────────────────── -->
+<!-- ── Coaching Summary (legacy) ──────────────────────────────────────────── -->
 <div class="section">
   <div class="section-title">Coaching Summary</div>
   <div class="card ai-text">
@@ -351,17 +530,21 @@
   </div>
 </div>
 
-<!-- ── Next Training Focus ─────────────────────────────────────────────────── -->
+<!-- ── Next Training Focus (legacy) ───────────────────────────────────────── -->
 {% if report.next_training_focus %}
 <div class="section">
   <div class="section-title">Next Training Focus</div>
   {% set lines = report.next_training_focus.split('\n') %}
   {% for line in lines %}
     {% if line.strip() %}
-    <div class="focus-item">{{ line.strip().lstrip('0123456789. ') }}</div>
+    <div class="focus-item">
+      <div class="focus-action">{{ line.strip().lstrip('0123456789. ') }}</div>
+    </div>
     {% endif %}
   {% endfor %}
 </div>
+{% endif %}
+
 {% endif %}
 
 </div><!-- /container -->

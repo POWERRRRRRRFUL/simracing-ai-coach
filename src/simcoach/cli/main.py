@@ -275,7 +275,7 @@ def analyze(
         task = progress.add_task("Waiting for AI analysis...", total=None)
         try:
             with LLMProvider(cfg.llm) as provider:
-                llm_response = provider.complete(system_prompt, user_prompt)
+                llm_response = provider.complete(system_prompt, user_prompt, json_mode=True)
         except Exception as e:
             console.print(f"\n[red]LLM call failed:[/red] {e}")
             raise typer.Exit(1)
@@ -324,22 +324,35 @@ def _print_session_summary(session: "Session") -> None:
 
 
 def _render_no_llm_report(context, cfg, open_browser: bool) -> None:
-    """Render a report with a placeholder message when no API key is configured."""
+    """Render a report with a structured placeholder when no API key is configured."""
+    import json as _json
     from simcoach.report import ReportGenerator
 
-    placeholder = (
-        "## Best Lap vs Reference\n"
-        "No API key configured — AI analysis was not performed.\n\n"
-        "## Session Findings\n"
-        "Add LLM_API_KEY to .env and re-run simcoach analyze to get AI coaching.\n\n"
-        "## Coaching Summary\n"
-        "The telemetry data was collected successfully and the context was built.\n"
-        "Configure your LLM provider to receive the full analysis.\n\n"
-        "## Next Training Focus\n"
-        "1. Configure LLM provider — add your API key to .env\n"
-        "2. Re-run simcoach analyze to get AI-powered coaching insights\n"
-        "3. Review the telemetry charts above for a manual overview\n"
-    )
+    # Use the structured JSON format so the template renders the same way
+    placeholder = _json.dumps({
+        "best_lap_vs_reference": {
+            "summary": "No API key configured — AI analysis was not performed.",
+            "time_loss_sections": [],
+            "main_causes": []
+        },
+        "session_findings": {
+            "consistency_note": "Add LLM_API_KEY to .env and re-run simcoach analyze.",
+            "repeated_patterns": [],
+            "outliers": []
+        },
+        "coaching_summary": {
+            "top_takeaways": [
+                "Telemetry collected and context built successfully",
+                "Configure your LLM provider to receive the full analysis",
+                "Review the telemetry charts above for a manual overview"
+            ]
+        },
+        "next_training_focus": {
+            "priorities": [
+                {"title": "Configure LLM", "action": "Add LLM_API_KEY to .env, then re-run simcoach analyze."}
+            ]
+        }
+    })
     gen = ReportGenerator(output_dir=cfg.report.output_dir)
     report = gen.build_report(context, placeholder, "no-llm")
     out_path = gen.render_html(report, open_browser=open_browser)

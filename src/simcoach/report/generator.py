@@ -1,9 +1,13 @@
 """
 HTML report generator.
 
-Parses the LLM response into structured sections, then renders a
-local HTML report using Jinja2. Chart data is embedded inline as
-JSON so no server is required.
+LLM response handling (in priority order):
+  1. Try to parse the response as JSON (new structured format from updated prompts).
+  2. Strip markdown code fences and try again.
+  3. Fall back to legacy ## Section regex so old/placeholder responses still render.
+
+The HTML template uses `structured` (dict) for rich card rendering when present,
+and falls back to the flat string fields for the no-API / legacy path.
 """
 
 from __future__ import annotations
@@ -20,11 +24,20 @@ from jinja2 import Environment, FileSystemLoader
 from simcoach.models.telemetry import AnalysisReport, LLMAnalysisContext
 
 
-SECTION_RE = re.compile(
+# Legacy fallback: regex that matched the old ## Section format
+_SECTION_RE = re.compile(
     r"##\s+(Best Lap vs Reference|Session Findings|Coaching Summary|Next Training Focus)"
     r"(.*?)(?=##\s+|\Z)",
     re.DOTALL,
 )
+
+# The four top-level keys we expect in a valid structured response
+_EXPECTED_KEYS = {
+    "best_lap_vs_reference",
+    "session_findings",
+    "coaching_summary",
+    "next_training_focus",
+}
 
 
 class ReportGenerator:
@@ -46,19 +59,30 @@ class ReportGenerator:
         llm_response: str,
         llm_model: str,
     ) -> AnalysisReport:
-        """Parse LLM response into an AnalysisReport object."""
-        sections = self._parse_sections(llm_response)
+        """Parse LLM response (structured JSON or legacy markdown) into AnalysisReport."""
+        structured, legacy_sections = self._parse_llm_response(llm_response)
 
         delta_str: str | None = None
         if context.delta_vs_reference_ms is not None:
             delta_ms = context.delta_vs_reference_ms
             sign = "+" if delta_ms >= 0 else "-"
-            abs_ms = abs(delta_ms)
-            delta_str = f"{sign}{abs_ms / 1000:.3f}s"
+            delta_str = f"{sign}{abs(delta_ms) / 1000:.3f}s"
 
         ref_time_str: str | None = None
         if context.reference_lap:
             ref_time_str = context.reference_lap.lap_time_str
+
+        # Populate flat string fields (used by fallback template path & legacy compat)
+        if structured:
+            bvr_text = self._flat_best_vs_ref(structured)
+            sf_text  = self._flat_session_findings(structured)
+            cs_text  = self._flat_coaching_summary(structured)
+            ntf_text = self._flat_next_focus(structured)
+        else:
+            bvr_text = legacy_sections.get("Best Lap vs Reference", "")
+            sf_text  = legacy_sections.get("Session Findings", "")
+            cs_text  = legacy_sections.get("Coaching Summary", "")
+            ntf_text = legacy_sections.get("Next Training Focus", "")
 
         return AnalysisReport(
             session_id=context.session_id,
@@ -70,10 +94,11 @@ class ReportGenerator:
             delta_vs_reference_str=delta_str,
             llm_model=llm_model,
             llm_raw_response=llm_response,
-            best_vs_reference_analysis=sections.get("Best Lap vs Reference", ""),
-            session_findings=sections.get("Session Findings", ""),
-            coaching_summary=sections.get("Coaching Summary", ""),
-            next_training_focus=sections.get("Next Training Focus", ""),
+            structured_analysis=structured or {},
+            best_vs_reference_analysis=bvr_text,
+            session_findings=sf_text,
+            coaching_summary=cs_text,
+            next_training_focus=ntf_text,
             context_json=context.model_dump(),
         )
 
@@ -89,17 +114,17 @@ class ReportGenerator:
         fname = f"report_{report.session_id}_{report.track_id}_{ts}.html"
         out_path = self._output_dir / fname
 
-        # Prepare chart data
         ctx = report.context_json
         best_trace = ctx.get("best_lap", {}).get("trace", [])
         ref_trace  = ctx.get("reference_lap", {}).get("trace", []) if ctx.get("reference_lap") else []
 
-        chart_data = self._build_chart_data(best_trace, ref_trace)
+        chart_data    = self._build_chart_data(best_trace, ref_trace)
         lap_summaries = ctx.get("all_lap_summaries", [])
 
         template = self._env.get_template("report.html.j2")
         html = template.render(
             report=report,
+            structured=report.structured_analysis,  # convenience shorthand
             chart_data_json=json.dumps(chart_data),
             lap_summaries=lap_summaries,
             generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
@@ -112,15 +137,75 @@ class ReportGenerator:
 
         return out_path
 
-    # ── Internal ──────────────────────────────────────────────────────────────
+    # ── Parsing ───────────────────────────────────────────────────────────────
 
-    def _parse_sections(self, text: str) -> dict[str, str]:
+    def _parse_llm_response(
+        self, text: str
+    ) -> tuple[dict[str, Any] | None, dict[str, str]]:
+        """
+        Returns (structured_dict | None, legacy_sections_dict).
+        Tries JSON first (direct, then fence-stripped), then falls back to regex.
+        """
+        structured = self._try_parse_json(text)
+        if structured:
+            return structured, {}
+
+        stripped = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip(), flags=re.MULTILINE)
+        structured = self._try_parse_json(stripped)
+        if structured:
+            return structured, {}
+
+        return None, self._parse_legacy_sections(text)
+
+    def _try_parse_json(self, text: str) -> dict[str, Any] | None:
+        """Return parsed dict only when it contains all four expected keys."""
+        try:
+            data = json.loads(text.strip())
+            if isinstance(data, dict) and _EXPECTED_KEYS.issubset(data.keys()):
+                return data
+        except (json.JSONDecodeError, ValueError):
+            pass
+        return None
+
+    def _parse_legacy_sections(self, text: str) -> dict[str, str]:
         sections: dict[str, str] = {}
-        for match in SECTION_RE.finditer(text):
-            title = match.group(1).strip()
-            content = match.group(2).strip()
-            sections[title] = content
+        for match in _SECTION_RE.finditer(text):
+            sections[match.group(1).strip()] = match.group(2).strip()
         return sections
+
+    # ── Flat-text helpers: structured JSON → plain strings ────────────────────
+
+    def _flat_best_vs_ref(self, s: dict) -> str:
+        d = s.get("best_lap_vs_reference", {})
+        lines = [d.get("summary", "")]
+        for item in d.get("time_loss_sections", []):
+            lines.append(f"• {item}")
+        causes = d.get("main_causes", [])
+        if causes:
+            lines.append("Causes: " + "; ".join(causes))
+        return "\n".join(l for l in lines if l)
+
+    def _flat_session_findings(self, s: dict) -> str:
+        d = s.get("session_findings", {})
+        lines = [d.get("consistency_note", "")]
+        for p in d.get("repeated_patterns", []):
+            lines.append(f"• {p}")
+        for o in d.get("outliers", []):
+            lines.append(f"! {o}")
+        return "\n".join(l for l in lines if l)
+
+    def _flat_coaching_summary(self, s: dict) -> str:
+        d = s.get("coaching_summary", {})
+        return "\n".join(f"• {t}" for t in d.get("top_takeaways", []))
+
+    def _flat_next_focus(self, s: dict) -> str:
+        d = s.get("next_training_focus", {})
+        lines = []
+        for i, p in enumerate(d.get("priorities", []), 1):
+            lines.append(f"{i}. {p.get('title', '')}: {p.get('action', '')}")
+        return "\n".join(lines)
+
+    # ── Chart data ────────────────────────────────────────────────────────────
 
     def _build_chart_data(
         self,
