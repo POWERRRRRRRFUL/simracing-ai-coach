@@ -118,32 +118,65 @@ def record(
         source=tel_source,
         sample_rate_hz=cfg.recorder.sample_rate_hz,
         output_dir=cfg.recorder.output_dir,
-        on_lap_complete=lambda lap: console.print(
-            f"  Lap {lap.lap_id + 1} complete — [green]{lap.lap_time_str}[/green]"
-            + (" [dim](invalid)[/dim]" if not lap.is_valid else "")
-        ),
     )
 
-    with Progress(
-        SpinnerColumn(),
-        "[progress.description]{task.description}",
-        TimeElapsedColumn(),
-        console=console,
-    ) as progress:
-        task = progress.add_task("Recording session...", total=None)
-        session = recorder.record(
-            progress_callback=lambda lap_id, n_frames: progress.update(
-                task,
-                description=f"Recording — lap {lap_id + 1}, {n_frames} frames"
-            ),
+    def _on_lap_complete(lap: "Lap") -> None:
+        valid_laps = sum(1 for l in recorder._session.laps if l.is_valid) if recorder._session else 0
+        console.print(
+            f"  Lap {lap.lap_id + 1} complete — [green]{lap.lap_time_str}[/green]"
+            + (f"  (total valid laps: {valid_laps})" if lap.is_valid else " [dim](invalid)[/dim]")
         )
 
-    tel_source.disconnect()
+    recorder._on_lap_complete = _on_lap_complete
 
-    out_path = recorder.save(session)
-    console.print(f"\n[green]Session saved:[/green] {out_path}")
-    console.print(f"Valid laps: {sum(1 for l in session.laps if l.is_valid)}/{len(session.laps)}")
-    console.print(f"\nRun: [cyan]simcoach analyze {out_path}[/cyan]")
+    console.print(
+        "\n[green]Recording started.[/green] "
+        "Press [bold]Ctrl+C[/bold] to stop and save the session.\n"
+    )
+
+    session = None
+    try:
+        with Progress(
+            SpinnerColumn(),
+            "[progress.description]{task.description}",
+            TimeElapsedColumn(),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Recording...", total=None)
+            session = recorder.record(
+                progress_callback=lambda lap_id, n_frames: progress.update(
+                    task,
+                    description=f"Recording — lap {lap_id + 1}, {n_frames} frames captured"
+                ),
+            )
+    finally:
+        console.print("\nStopping recorder...")
+        tel_source.disconnect()
+
+        if session is None:
+            console.print("[yellow]No session data collected — nothing to save.[/yellow]")
+            raise typer.Exit(1)
+
+        total_frames = len(session.raw_frames)
+        valid_count = sum(1 for l in session.laps if l.is_valid)
+        console.print(f"Frames captured: {total_frames}  |  Laps: {len(session.laps)}  |  Valid: {valid_count}")
+
+        if total_frames == 0:
+            console.print("[yellow]0 frames captured — session file not saved.[/yellow]")
+            raise typer.Exit(1)
+
+        console.print("Saving session...")
+        try:
+            out_path = recorder.save(session)
+        except Exception as e:
+            console.print(f"[red]ERROR: failed to save session:[/red] {e}")
+            raise typer.Exit(1)
+
+        console.print(f"[green]Session saved to:[/green] {out_path}")
+        if valid_count:
+            console.print(f"\nRun: [cyan]simcoach analyze {out_path}[/cyan]")
+        else:
+            console.print("[yellow]No valid laps recorded. Drive a complete lap before stopping.[/yellow]")
 
 
 # ─── analyze ──────────────────────────────────────────────────────────────────

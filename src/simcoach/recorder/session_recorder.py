@@ -84,45 +84,53 @@ class SessionRecorder:
 
         print(f"[recorder] Recording session {session_id} on {self._source.track_id} / {self._source.car_id}")
 
-        while True:
-            loop_start = time.time()
+        try:
+            while True:
+                loop_start = time.time()
 
-            # Check stop condition
-            if stop_condition and stop_condition():
-                break
-            if hasattr(self._source, "is_done") and self._source.is_done:
-                break
+                # Check stop condition
+                if stop_condition and stop_condition():
+                    break
+                if hasattr(self._source, "is_done") and self._source.is_done:
+                    break
 
-            # Read a frame
-            frame = self._source.read_frame()
-            if frame is not None:
-                self._process_frame(frame)
+                # Read a frame
+                frame = self._source.read_frame()
+                if frame is not None:
+                    self._process_frame(frame)
 
-            # Progress callback ~every second
-            if time.time() - last_progress_report >= 1.0:
-                if progress_callback:
-                    progress_callback(
-                        self._current_lap_id,
-                        len(self._session.raw_frames),
-                    )
-                last_progress_report = time.time()
+                # Progress callback ~every second
+                if time.time() - last_progress_report >= 1.0:
+                    if progress_callback:
+                        progress_callback(
+                            self._current_lap_id,
+                            len(self._session.raw_frames),
+                        )
+                    last_progress_report = time.time()
 
-            # Throttle to target sample rate (skip in fast_mode for instant mock sessions)
-            if not fast_mode:
-                elapsed = time.time() - loop_start
-                sleep_time = self._interval - elapsed
-                if sleep_time > 0:
-                    time.sleep(sleep_time)
+                # Throttle to target sample rate (skip in fast_mode for instant mock sessions)
+                if not fast_mode:
+                    elapsed = time.time() - loop_start
+                    sleep_time = self._interval - elapsed
+                    if sleep_time > 0:
+                        time.sleep(sleep_time)
 
-        # Flush final partial lap
+        except KeyboardInterrupt:
+            # Ctrl+C: fall through to flush & return — do NOT re-raise here.
+            print(f"\n[recorder] Ctrl+C received — stopping. "
+                  f"Frames collected: {len(self._session.raw_frames)}")
+
+        # Always flush the partial lap that was in progress when we stopped.
         self._flush_current_lap(is_final=True)
+        print(f"[recorder] Total laps flushed: {len(self._session.laps)}")
 
         return self._session
 
     def save(self, session: Session) -> Path:
         """Serialise session to JSON and return the file path."""
         self._output_dir.mkdir(parents=True, exist_ok=True)
-        fname = f"session_{session.session_id}_{session.track_id}.json"
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        fname = f"session_{ts}_{session.session_id}_{session.track_id}.json"
         path = self._output_dir / fname
         with open(path, "w", encoding="utf-8") as f:
             json.dump(session.model_dump(), f, indent=2)
