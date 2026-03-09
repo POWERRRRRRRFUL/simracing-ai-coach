@@ -1,0 +1,38 @@
+# simcoach configuration — copy this to config.yaml and fill in your values
+
+llm:
+  # Provider base URL (OpenAI-compatible)
+  # Options: https://api.openai.com/v1 | https://openrouter.ai/api/v1 | http://localhost:11434/v1
+  base_url: "https://api.openai.com/v1"
+  # Model to use — any model your provider supports
+  model: "gpt-4o-mini"
+  # Max tokens for the analysis response
+  max_tokens: 2048
+  # Temperature (0.0–1.0). Lower = more consistent output.
+  temperature: 0.3
+
+recorder:
+  # How many telemetry frames per second to capture (AC runs at ~50Hz internally)
+  sample_rate_hz: 25
+  # Source: "ac_shared_memory" (real AC) or "mock" (demo mode)
+  source: "mock"
+  # Directory to save recorded sessions
+  output_dir: "output/sessions"
+
+context_builder:
+  # How many evenly-spaced points to resample each lap to
+  resample_points: 100
+  # Show only the top N braking events in context to limit token usage
+  max_brake_events: 10
+  # Show only the top N gear change events
+  max_gear_events: 15
+
+report:
+  # Directory to write HTML reports
+  output_dir: "output/reports"
+  # Open report in browser after generation
+  open_browser: true
+
+reference:
+  # Directory to store personal-best lap files
+  pb_dir: "output/pb_laps"
