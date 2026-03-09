@@ -150,7 +150,6 @@ def record(
                 ),
             )
     finally:
-        console.print("\nStopping recorder...")
         tel_source.disconnect()
 
         if session is None:
@@ -158,16 +157,22 @@ def record(
             raise typer.Exit(1)
 
         total_frames = len(session.raw_frames)
-        valid_count = sum(1 for l in session.laps if l.is_valid)
-        console.print(f"Frames captured: {total_frames}  |  Laps: {len(session.laps)}  |  Valid: {valid_count}")
+        valid_count  = sum(1 for l in session.laps if l.is_valid)
+        console.print(
+            f"  Frames: {total_frames}  |  Laps: {len(session.laps)}  |  Valid: {valid_count}"
+        )
 
-        if total_frames == 0:
-            console.print("[yellow]0 frames captured — session file not saved.[/yellow]")
+        if total_frames == 0 or not session.laps:
+            console.print("[yellow]No valid laps recorded. Session not saved.[/yellow]")
             raise typer.Exit(1)
 
-        console.print("Saving session...")
+        console.print("Saving session atomically...")
         try:
             out_path = recorder.save(session)
+        except ValueError as e:
+            # save() raises ValueError when there are no laps
+            console.print(f"[yellow]{e}[/yellow]")
+            raise typer.Exit(1)
         except Exception as e:
             console.print(f"[red]ERROR: failed to save session:[/red] {e}")
             raise typer.Exit(1)
@@ -176,7 +181,7 @@ def record(
         if valid_count:
             console.print(f"\nRun: [cyan]simcoach analyze {out_path}[/cyan]")
         else:
-            console.print("[yellow]No valid laps recorded. Drive a complete lap before stopping.[/yellow]")
+            console.print("[yellow]No valid laps. Drive a complete lap before stopping.[/yellow]")
 
 
 # ─── analyze ──────────────────────────────────────────────────────────────────
