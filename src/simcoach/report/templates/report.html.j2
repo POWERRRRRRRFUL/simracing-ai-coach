@@ -163,6 +163,30 @@
       font-size: 0.9rem;
       font-style: italic;
     }
+    /* ── Track map selection panel ───────────────────────────────────────── */
+    #selPanel {
+      display: none;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 20px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 16px;
+      margin-top: 8px;
+      font-size: 0.82rem;
+    }
+    #selPanel.visible { display: flex; }
+    .sel-item { display: flex; flex-direction: column; gap: 1px; }
+    .sel-label { font-size: 0.68rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+    .sel-value { font-size: 1.05rem; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+    #selDismiss {
+      margin-left: auto; cursor: pointer; color: var(--muted);
+      font-size: 0.78rem; padding: 2px 8px;
+      border: 1px solid var(--border); border-radius: 4px;
+      background: none; transition: color 0.15s;
+    }
+    #selDismiss:hover { color: var(--text); }
     .chart-toolbar {
       display: flex;
       align-items: center;
@@ -429,6 +453,16 @@
     <div class="track-map-no-data">No world position data in this session. Re-record with AC running.</div>
   </div>
   {% endif %}
+</div>
+
+<!-- ── Track Map selection info panel ────────────────────────────────────── -->
+<div id="selPanel">
+  <div class="sel-item"><span class="sel-label">Track Pos</span><span class="sel-value" id="selProgress">—</span></div>
+  <div class="sel-item"><span class="sel-label">Speed</span><span class="sel-value" id="selSpeed">—</span></div>
+  <div class="sel-item"><span class="sel-label">Throttle</span><span class="sel-value" id="selThrottle">—</span></div>
+  <div class="sel-item"><span class="sel-label">Brake</span><span class="sel-value" id="selBrake">—</span></div>
+  <div class="sel-item"><span class="sel-label">Steering</span><span class="sel-value" id="selSteering">—</span></div>
+  <button id="selDismiss">✕ Clear</button>
 </div>
 
 <!-- ── Telemetry Charts ────────────────────────────────────────────────────── -->
@@ -769,14 +803,25 @@
   const sMin = Math.min(...speeds);
   const sMax = Math.max(...speeds);
 
+  // Build per-point customdata: [progress, speed, throttle, brake, steering]
+  // Used by click handler to populate the selection panel and link to telemetry.
+  const bestCustomdata = MAP.best.x.map((_, i) => [
+    MAP.best.progress[i] ?? (i / (MAP.best.x.length - 1)),
+    MAP.best.speed[i]    ?? 0,
+    MAP.best.throttle[i] ?? 0,
+    MAP.best.brake[i]    ?? 0,
+    MAP.best.steering[i] ?? 0,
+  ]);
+
   const traces = [{
     x: MAP.best.x,
     y: MAP.best.z,
+    customdata: bestCustomdata,
     mode: 'lines+markers',
     name: 'Best Lap',
     line: { width: 0 },
     marker: {
-      size: 3,
+      size: 5,
       color: speeds,
       colorscale: speedColorscale,
       showscale: true,
@@ -790,7 +835,7 @@
       cmin: sMin,
       cmax: sMax,
     },
-    hovertemplate: 'x: %{x:.0f} m  z: %{y:.0f} m<br>speed: %{marker.color:.0f} km/h<extra>Best</extra>',
+    hovertemplate: 'x: %{x:.0f} m  z: %{y:.0f} m<br>speed: %{marker.color:.0f} km/h<br><i>click to link telemetry</i><extra>Best</extra>',
   }];
 
   if (MAP.reference && MAP.reference.x) {
@@ -813,6 +858,17 @@
     name: 'S/F',
     marker: { symbol: 'diamond', size: 10, color: '#e63946', line: { color: '#fff', width: 1 } },
     hovertemplate: 'Start / Finish<extra></extra>',
+  });
+
+  // Highlight trace — initially empty; updated on click
+  const HIGHLIGHT_IDX = traces.length;
+  traces.push({
+    x: [], y: [],
+    mode: 'markers',
+    name: '',
+    showlegend: false,
+    marker: { symbol: 'circle-open', size: 14, color: '#f59e0b', line: { color: '#f59e0b', width: 2.5 } },
+    hoverinfo: 'skip',
   });
 
   const layout = {
@@ -848,6 +904,62 @@
     modeBarButtonsToRemove: ['toImage', 'sendDataToCloud', 'lasso2d', 'select2d'],
     displaylogo: false,
   });
+
+  // ── IDs for the four telemetry charts (must match Telemetry Charts section) ──
+  const TELEM_IDS = ['chartSpeed', 'chartThrottle', 'chartBrake', 'chartSteering'];
+
+  // ── Vertical indicator line shape shared by all telemetry charts ─────────
+  function makeVLine(progress) {
+    return {
+      type: 'line',
+      x0: progress, x1: progress,
+      y0: 0, y1: 1, yref: 'paper',
+      line: { color: '#f59e0b', width: 1.5, dash: 'dot' },
+    };
+  }
+
+  // ── Selection panel helpers ───────────────────────────────────────────────
+  const panel = document.getElementById('selPanel');
+  function showPanel(progress, speed, throttle, brake, steering) {
+    document.getElementById('selProgress').textContent = (progress * 100).toFixed(1) + '%';
+    document.getElementById('selSpeed').textContent    = speed.toFixed(1) + ' km/h';
+    document.getElementById('selThrottle').textContent = (throttle * 100).toFixed(0) + '%';
+    document.getElementById('selBrake').textContent    = (brake * 100).toFixed(0) + '%';
+    document.getElementById('selSteering').textContent = steering.toFixed(3);
+    panel.classList.add('visible');
+  }
+  function clearSelection() {
+    panel.classList.remove('visible');
+    Plotly.restyle('chartTrackMap', { x: [[]], y: [[]] }, [HIGHLIGHT_IDX]);
+    TELEM_IDS.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) Plotly.relayout(id, { shapes: [] });
+    });
+  }
+
+  // ── Track Map click handler ───────────────────────────────────────────────
+  document.getElementById('chartTrackMap').on('plotly_click', function (data) {
+    const pts = data.points.filter(p => p.curveNumber === 0); // only Best Lap trace
+    if (!pts.length) return;
+    const pt = pts[0];
+    const [progress, speed, throttle, brake, steering] = pt.customdata;
+
+    // Highlight the clicked point on the track map
+    Plotly.restyle('chartTrackMap', { x: [[pt.x]], y: [[pt.y]] }, [HIGHLIGHT_IDX]);
+
+    // Add vertical indicator line to all telemetry charts
+    const vline = makeVLine(progress);
+    TELEM_IDS.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) Plotly.relayout(id, { shapes: [vline] });
+    });
+
+    // Show the info panel
+    showPanel(progress, speed, throttle, brake, steering);
+  });
+
+  // ── Dismiss button ────────────────────────────────────────────────────────
+  document.getElementById('selDismiss').addEventListener('click', clearSelection);
 })();
 </script>
 </body>

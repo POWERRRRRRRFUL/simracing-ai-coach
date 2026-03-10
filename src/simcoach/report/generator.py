@@ -284,9 +284,13 @@ class ReportGenerator:
 
         return {
             "best": {
-                "x": bp["x"],
-                "z": bp["z"],
-                "speed": [round(p.get("spd", 0), 1) for p in best_trace],
+                "x":        bp["x"],
+                "z":        bp["z"],
+                "speed":    [round(p.get("spd", 0), 1) for p in best_trace],
+                "progress": [round(p.get("pos", 0), 4) for p in best_trace],
+                "throttle": [round(p.get("thr", 0), 3) for p in best_trace],
+                "brake":    [round(p.get("brk", 0), 3) for p in best_trace],
+                "steering": [round(p.get("str", 0), 3) for p in best_trace],
             },
             "reference": ref_entry,
         }
