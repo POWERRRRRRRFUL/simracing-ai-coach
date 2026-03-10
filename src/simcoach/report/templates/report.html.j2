@@ -817,12 +817,16 @@
 
   const layout = {
     height: 420,
-    margin: { t: 12, b: 40, l: 50, r: 80 },
+    margin: { t: 36, b: 40, l: 50, r: 80 },
     paper_bgcolor: C_PAPER,
     plot_bgcolor:  C_PLOT,
     font: { color: C_TEXT, family: "'Segoe UI', system-ui, sans-serif", size: 11 },
     showlegend: true,
-    legend: { bgcolor: 'rgba(0,0,0,0)', bordercolor: C_GRID, borderwidth: 1, font: { color: C_TEXT, size: 10 } },
+    legend: {
+      bgcolor: 'rgba(15,17,23,0.75)', bordercolor: C_GRID, borderwidth: 1,
+      font: { color: C_TEXT, size: 10 },
+      x: 0.01, y: 0.01, xanchor: 'left', yanchor: 'bottom',
+    },
     xaxis: {
       title: { text: 'X (m)', font: { color: C_TEXT, size: 10 } },
       gridcolor: C_GRID, zerolinecolor: C_GRID, color: C_TEXT,
