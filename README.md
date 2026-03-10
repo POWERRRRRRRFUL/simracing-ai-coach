@@ -94,9 +94,9 @@ Drive → Record → Analyse → Read report → Drive better
 
 - Python 3.11 or newer
 - Windows 10/11 (required for Assetto Corsa shared memory; demo mode works on any OS)
-- [uv](https://docs.astral.sh/uv/) (recommended) or pip
+- [uv](https://docs.astral.sh/uv/)  or pip
 
-### Install with uv (recommended)
+### Install with uv 
 
 ```bash
 git clone https://github.com/POWERRRRRRRFUL/simracing-ai-coach.git
@@ -373,9 +373,9 @@ simcoach 录制你的驾驶遥测数据，构建结构化分析上下文，调�
 
 - Python 3.11 或更新版本
 - Windows 10/11（使用 AC 共享内存时必须；演示模式可在任意系统运行）
-- [uv](https://docs.astral.sh/uv/)（推荐）或 pip
+- [uv](https://docs.astral.sh/uv/)或 pip
 
-### 使用 uv 安装（推荐）
+### 使用 uv 安装
 
 ```bash
 git clone https://github.com/POWERRRRRRRFUL/simracing-ai-coach.git
