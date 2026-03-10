@@ -99,7 +99,7 @@ Drive → Record → Analyse → Read report → Drive better
 ### Install with uv (recommended)
 
 ```bash
-git clone https://github.com/yourusername/simracing-ai-coach.git
+git clone https://github.com/POWERRRRRRRFUL/simracing-ai-coach.git
 cd simracing-ai-coach
 
 uv venv
@@ -109,7 +109,7 @@ uv pip install -e ".[dev]"
 ### Install with pip
 
 ```bash
-git clone https://github.com/yourusername/simracing-ai-coach.git
+git clone https://github.com/POWERRRRRRRFUL/simracing-ai-coach.git
 cd simracing-ai-coach
 
 python -m venv .venv
@@ -378,7 +378,7 @@ simcoach 录制你的驾驶遥测数据，构建结构化分析上下文，调�
 ### 使用 uv 安装（推荐）
 
 ```bash
-git clone https://github.com/yourusername/simracing-ai-coach.git
+git clone https://github.com/POWERRRRRRRFUL/simracing-ai-coach.git
 cd simracing-ai-coach
 
 uv venv
@@ -388,7 +388,7 @@ uv pip install -e ".[dev]"
 ### 使用 pip 安装
 
 ```bash
-git clone https://github.com/yourusername/simracing-ai-coach.git
+git clone https://github.com/POWERRRRRRRFUL/simracing-ai-coach.git
 cd simracing-ai-coach
 
 python -m venv .venv
