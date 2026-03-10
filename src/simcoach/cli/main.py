@@ -257,13 +257,18 @@ def analyze(
         if was_updated:
             console.print(f"  [green]New personal best![/green] {new_pb.lap_time_str} saved.")
 
+    # ── Build high-res chart traces (separate from LLM context) ──────────────
+    chart_traces = builder.build_chart_traces(
+        session, reference_lap, chart_points=cfg.context_builder.chart_points
+    )
+
     # ── Call LLM ─────────────────────────────────────────────────────────────
     if not cfg.llm.api_key:
         console.print(
             "\n[yellow]No LLM_API_KEY set.[/yellow] Skipping AI analysis.\n"
             "Add your key to .env and re-run, or run [cyan]simcoach init[/cyan] first."
         )
-        _render_no_llm_report(context, cfg, not no_browser)
+        _render_no_llm_report(context, cfg, not no_browser, chart_traces)
         return
 
     context_json = builder.to_json(context)
@@ -282,7 +287,7 @@ def analyze(
 
     # ── Generate report ───────────────────────────────────────────────────────
     gen = ReportGenerator(output_dir=cfg.report.output_dir)
-    report = gen.build_report(context, llm_response, cfg.llm.model)
+    report = gen.build_report(context, llm_response, cfg.llm.model, chart_traces=chart_traces)
     out_path = gen.render_html(report, open_browser=not no_browser)
 
     console.print(f"\n[green]Report generated:[/green] {out_path}")
@@ -323,7 +328,7 @@ def _print_session_summary(session: "Session") -> None:
     console.print(table)
 
 
-def _render_no_llm_report(context, cfg, open_browser: bool) -> None:
+def _render_no_llm_report(context, cfg, open_browser: bool, chart_traces=None) -> None:
     """Render a report with a structured placeholder when no API key is configured."""
     import json as _json
     from simcoach.report import ReportGenerator
@@ -354,7 +359,7 @@ def _render_no_llm_report(context, cfg, open_browser: bool) -> None:
         }
     })
     gen = ReportGenerator(output_dir=cfg.report.output_dir)
-    report = gen.build_report(context, placeholder, "no-llm")
+    report = gen.build_report(context, placeholder, "no-llm", chart_traces=chart_traces)
     out_path = gen.render_html(report, open_browser=open_browser)
     console.print(f"\n[yellow]Report (no AI analysis):[/yellow] {out_path}")
 

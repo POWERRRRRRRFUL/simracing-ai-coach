@@ -183,5 +183,10 @@ class AnalysisReport(BaseModel):
     coaching_summary: str = ""
     next_training_focus: str = ""
 
+    # High-resolution traces for the HTML chart (independent of LLM context).
+    # Keys: "best" (list of point dicts), "reference" (list or None).
+    # When present, render_html() uses these instead of the low-res context_json traces.
+    chart_traces: dict[str, Any] = Field(default_factory=dict)
+
     # The context that was sent to LLM (for transparency / debugging)
     context_json: dict[str, Any] = Field(default_factory=dict)

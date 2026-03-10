@@ -94,6 +94,38 @@ class ContextBuilder:
         """Serialise context to compact JSON string for inclusion in LLM prompt."""
         return json.dumps(context.model_dump(), indent=2)
 
+    def build_chart_traces(
+        self,
+        session: Session,
+        reference_lap: ReferenceLap | None = None,
+        chart_points: int = 1000,
+    ) -> dict[str, list | None]:
+        """
+        Build high-resolution traces for HTML chart rendering.
+
+        Separate from build() so the LLM prompt stays compact (100 pts)
+        while the interactive chart gets full detail (default 1 000 pts).
+
+        Returns a dict with keys:
+            "best"      – list of point dicts (always present)
+            "reference" – list of point dicts, or None if no reference lap
+        """
+        valid_laps = self._filter_valid_laps(session.laps)
+        if not valid_laps:
+            return {"best": [], "reference": None}
+
+        best_lap = self._select_best_lap(valid_laps)
+        # Use all available frames; if fewer than chart_points just return them all
+        n = min(chart_points, len(best_lap.frames)) if best_lap.frames else 0
+        best_trace = resample_trace(best_lap.frames, n) if n > 0 else []
+
+        ref_trace: list | None = None
+        if reference_lap is not None and reference_lap.frames:
+            n_ref = min(chart_points, len(reference_lap.frames))
+            ref_trace = resample_trace(reference_lap.frames, n_ref) if n_ref > 0 else []
+
+        return {"best": best_trace, "reference": ref_trace}
+
     # ── Internal ──────────────────────────────────────────────────────────────
 
     def _filter_valid_laps(self, laps: list[Lap]) -> list[Lap]:

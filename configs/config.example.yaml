@@ -20,8 +20,12 @@ recorder:
   output_dir: "output/sessions"
 
 context_builder:
-  # How many evenly-spaced points to resample each lap to
+  # Points sent to the LLM — keep small to fit within token budget
   resample_points: 100
+  # Points used in the interactive HTML chart — higher = more zoom detail
+  # At 25 Hz a 100s lap has ~2500 raw frames; 1000 keeps good detail without
+  # bloating the HTML file size. Reduce if the page feels slow to load.
+  chart_points: 1000
   # Show only the top N braking events in context to limit token usage
   max_brake_events: 10
   # Show only the top N gear change events

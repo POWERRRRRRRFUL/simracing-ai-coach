@@ -29,7 +29,8 @@ class RecorderConfig(BaseModel):
 
 
 class ContextBuilderConfig(BaseModel):
-    resample_points: int = 100
+    resample_points: int = 100   # points sent to LLM (keep small for token budget)
+    chart_points: int = 1000     # points used in HTML chart (higher = more zoom detail)
     max_brake_events: int = 10
     max_gear_events: int = 15
 

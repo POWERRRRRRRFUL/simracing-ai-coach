@@ -58,8 +58,16 @@ class ReportGenerator:
         context: LLMAnalysisContext,
         llm_response: str,
         llm_model: str,
+        chart_traces: dict | None = None,
     ) -> AnalysisReport:
-        """Parse LLM response (structured JSON or legacy markdown) into AnalysisReport."""
+        """Parse LLM response (structured JSON or legacy markdown) into AnalysisReport.
+
+        Args:
+            chart_traces: Optional high-resolution trace dict produced by
+                          ContextBuilder.build_chart_traces().  When provided,
+                          render_html() uses these instead of the 100-point LLM
+                          traces so the interactive Plotly charts have full detail.
+        """
         structured, legacy_sections = self._parse_llm_response(llm_response)
 
         delta_str: str | None = None
@@ -99,6 +107,7 @@ class ReportGenerator:
             session_findings=sf_text,
             coaching_summary=cs_text,
             next_training_focus=ntf_text,
+            chart_traces=chart_traces or {},
             context_json=context.model_dump(),
         )
 
@@ -115,8 +124,16 @@ class ReportGenerator:
         out_path = self._output_dir / fname
 
         ctx = report.context_json
-        best_trace = ctx.get("best_lap", {}).get("trace", [])
-        ref_trace  = ctx.get("reference_lap", {}).get("trace", []) if ctx.get("reference_lap") else []
+
+        # Prefer high-resolution chart_traces when available; fall back to the
+        # 100-point LLM context traces for old reports or when no chart_traces
+        # were built (e.g. sessions loaded without re-running build_chart_traces).
+        if report.chart_traces and report.chart_traces.get("best"):
+            best_trace = report.chart_traces["best"]
+            ref_trace  = report.chart_traces.get("reference") or []
+        else:
+            best_trace = ctx.get("best_lap", {}).get("trace", [])
+            ref_trace  = ctx.get("reference_lap", {}).get("trace", []) if ctx.get("reference_lap") else []
 
         chart_data    = self._build_chart_data(best_trace, ref_trace)
         lap_summaries = ctx.get("all_lap_summaries", [])
