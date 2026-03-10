@@ -15,14 +15,23 @@ Reference: https://assettocorsa.club/forum/index.php?threads/acc-shared-memory-d
 
 from __future__ import annotations
 
+import configparser
 import ctypes
+import logging
 import mmap
+import os
 import struct
 import time
+from pathlib import Path
 from typing import Optional
 
 from simcoach.models.telemetry import TelemetryFrame
 from .base import TelemetrySource
+
+log = logging.getLogger(__name__)
+
+# Set env var SIMCOACH_DEBUG=1 to enable verbose SHM tracing.
+_DEBUG = os.environ.get("SIMCOACH_DEBUG", "") == "1"
 
 
 # ─── ctypes struct definitions ────────────────────────────────────────────────
@@ -214,10 +223,30 @@ class ACSharedMemorySource(TelemetrySource):
             self._graphics_map = _mmap.mmap(-1, ctypes.sizeof(ACGraphics), self.SHM_GRAPHICS)
             self._static_map   = _mmap.mmap(-1, ctypes.sizeof(ACStatic),   self.SHM_STATIC)
 
-            # Read static info once
+            # Read static info once; AC may not have populated carModel yet
+            # (it can be "0" or empty during loading), so we re-try in read_frame().
             static = self._read_struct(ACStatic, self._static_map)
-            self._car_id   = static.carModel or "unknown"
-            self._track_id = static.track    or "unknown"
+            shm_car   = self._clean_static_str(static.carModel)
+            shm_track = self._clean_static_str(static.track)
+
+            if _DEBUG:
+                log.debug("[SHM connect] raw carModel=%r  raw track=%r",
+                          static.carModel, static.track)
+                log.debug("[SHM connect] cleaned car=%r  track=%r",
+                          shm_car, shm_track)
+
+            self._car_id   = shm_car
+            self._track_id = shm_track
+
+            # carModel is often "0" or blank at session start in some AC versions.
+            # Fall back to race.ini which AC always writes before entering a session.
+            if self._car_id == "unknown":
+                ini_car, ini_track = self._read_race_ini()
+                if ini_car:
+                    self._car_id = ini_car
+                    log.info("[SHM] carModel not in SHM — using race.ini: %s", ini_car)
+                if self._track_id == "unknown" and ini_track:
+                    self._track_id = ini_track
 
             self._connected = True
             return True
@@ -244,6 +273,16 @@ class ACSharedMemorySource(TelemetrySource):
 
             if gfx.status not in (AC_STATUS_LIVE, AC_STATUS_PAUSE):
                 return None
+
+            # If carModel wasn't populated at connect() time, retry from SHM
+            # and then from race.ini as a last resort.
+            if self._car_id == "unknown":
+                self._try_refresh_static()
+                if self._car_id == "unknown":
+                    ini_car, _ = self._read_race_ini()
+                    if ini_car:
+                        self._car_id = ini_car
+                        log.info("[SHM] carModel resolved from race.ini mid-session: %s", ini_car)
 
             # Detect lap boundary
             if self._prev_lap_count == -1:
@@ -279,6 +318,60 @@ class ACSharedMemorySource(TelemetrySource):
 
         except Exception:
             return None
+
+    # ── Static refresh ───────────────────────────────────────────────────────
+
+    _INVALID_CAR_IDS = {"", "0", "unknown"}
+
+    def _clean_static_str(self, value: str) -> str:
+        """Strip and validate a static SHM string; return 'unknown' if unusable."""
+        s = (value or "").strip()
+        return s if s and s not in self._INVALID_CAR_IDS else "unknown"
+
+    def _try_refresh_static(self) -> None:
+        """Re-read static SHM to pick up carModel if AC populated it after connect()."""
+        if self._static_map is None:
+            return
+        try:
+            static = self._read_struct(ACStatic, self._static_map)
+            car   = self._clean_static_str(static.carModel)
+            track = self._clean_static_str(static.track)
+            if _DEBUG:
+                log.debug("[SHM refresh] raw carModel=%r → cleaned=%r", static.carModel, car)
+            if car != "unknown":
+                log.info("[SHM] carModel resolved from SHM refresh: %s", car)
+                self._car_id = car
+            if track != "unknown":
+                self._track_id = track
+        except Exception as exc:
+            log.debug("[SHM refresh] exception: %s", exc)
+
+    @staticmethod
+    def _read_race_ini() -> tuple[str, str]:
+        """
+        Read car model and track from AC's race.ini config file.
+
+        AC always writes this file before loading a session, so it is a
+        reliable fallback when the static SHM field has not been populated.
+
+        Returns (car_model, track_id), either may be "" if not found.
+        """
+        ini_path = Path(os.path.expandvars(
+            r"%USERPROFILE%\Documents\Assetto Corsa\cfg\race.ini"
+        ))
+        if not ini_path.exists():
+            return "", ""
+        try:
+            cfg = configparser.ConfigParser()
+            cfg.read(ini_path, encoding="utf-8-sig")
+            car   = cfg.get("RACE", "model",  fallback="").strip()
+            track = cfg.get("RACE", "track",  fallback="").strip()
+            if _DEBUG:
+                log.debug("[race.ini] model=%r  track=%r", car, track)
+            return car, track
+        except Exception as exc:
+            log.debug("[race.ini] read failed: %s", exc)
+            return "", ""
 
     @property
     def car_id(self) -> str:

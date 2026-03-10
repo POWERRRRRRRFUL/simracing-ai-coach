@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>simcoach — {{ report.track_id }} / {{ report.car_id }}</title>
+  <title>simcoach — {{ report.track_id }} / {{ report.car_id if report.car_id not in ('0', '', 'unknown') else 'Unknown' }}</title>
   <script src="https://cdn.plot.ly/plotly-basic-2.35.2.min.js"></script>
   <style>
     :root {
@@ -330,7 +330,7 @@
     <h1><span>simcoach</span> — Post-Session Analysis</h1>
     <div class="meta">
       <span>Track: <strong>{{ report.track_id }}</strong></span>
-      <span>Car: <strong>{{ report.car_id }}</strong></span>
+      <span>Car: <strong>{{ report.car_id if report.car_id not in ('0', '', 'unknown') else 'Unknown' }}</strong></span>
       <span>Session: <strong>{{ report.session_id }}</strong></span>
       <span>Date: <strong>{{ report.session_date[:10] }}</strong></span>
       <span>Model: <strong>{{ report.llm_model }}</strong></span>

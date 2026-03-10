@@ -147,6 +147,12 @@ class SessionRecorder:
             self._stop_requested = True
 
         # Phase 2: finalise — always runs, regardless of how the loop exited.
+        # Re-read car_id in case it was "unknown" at connect() but populated later.
+        if self._session.car_id == "unknown":
+            resolved = self._source.car_id
+            if resolved not in ("unknown", "", "0"):
+                self._session.car_id = resolved
+
         print("[recorder] Finalizing laps...")
         self._flush_current_lap(is_final=True)
         valid = sum(1 for l in self._session.laps if l.is_valid)

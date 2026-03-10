@@ -85,12 +85,25 @@ def record(
     ),
     laps: int = typer.Option(6, "--laps", "-l", help="(mock only) Number of laps to simulate"),
     config: Optional[str] = typer.Option(None, "--config", "-c", help="Path to config.yaml"),
+    car_id: Optional[str] = typer.Option(
+        None, "--car-id",
+        help="Override car model ID (e.g. ks_lamborghini_huracan_performante). "
+             "Use if SHM car detection fails."
+    ),
+    debug: bool = typer.Option(False, "--debug", help="Enable verbose SHM debug logging"),
 ) -> None:
     """Connect to Assetto Corsa (or mock source) and record a session."""
+    import logging as _logging
     from simcoach.config import load_config
     from simcoach.recorder import SessionRecorder
     from simcoach.telemetry_bridge.mock_source import MockTelemetrySource
     from simcoach.telemetry_bridge.ac_shared_memory import ACSharedMemorySource
+
+    if debug:
+        import os as _os
+        _os.environ["SIMCOACH_DEBUG"] = "1"
+        _logging.basicConfig(level=_logging.DEBUG, format="[%(name)s] %(message)s")
+        console.print("[dim]Debug logging enabled[/dim]")
 
     cfg = load_config(config)
     chosen_source = source or cfg.recorder.source
@@ -108,7 +121,21 @@ def record(
                 "Tip: use [cyan]--source mock[/cyan] to test without AC."
             )
             raise typer.Exit(1)
-        console.print("[green]Connected to AC shared memory![/green]")
+
+        # Apply manual override BEFORE session object is created
+        if car_id:
+            tel_source._car_id = car_id
+            console.print(f"  Car ID override: [cyan]{car_id}[/cyan]")
+
+        car_label   = tel_source.car_id   or "unknown"
+        track_label = tel_source.track_id or "unknown"
+        console.print(f"[green]Connected![/green]  Car: [cyan]{car_label}[/cyan]  Track: [cyan]{track_label}[/cyan]")
+        if car_label == "unknown":
+            console.print(
+                "[yellow]  Warning: car model could not be read from AC shared memory.[/yellow]\n"
+                "  Try: [cyan]simcoach record --car-id <your_car_folder>[/cyan]  "
+                "or [cyan]--debug[/cyan] to diagnose."
+            )
     else:
         tel_source = MockTelemetrySource(n_laps=laps, seed=42)
         tel_source.connect()
