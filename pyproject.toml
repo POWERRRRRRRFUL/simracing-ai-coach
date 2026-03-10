@@ -25,9 +25,13 @@ dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
 ]
+gui = [
+    "PySide6>=6.6.0",
+]
 
 [project.scripts]
 simcoach = "simcoach.cli.main:app"
+simcoach-gui = "simcoach.app.__main__:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/simcoach"]

@@ -110,3 +110,10 @@ def load_config(config_path: str | Path | None = None) -> AppConfig:
         config.llm.api_key = os.environ.get("LLM_API_KEY", "")
 
     return config
+
+
+def save_config(config: AppConfig, config_path: str | Path = "config.yaml") -> None:
+    """Serialize AppConfig back to YAML file."""
+    data = config.model_dump()
+    with open(config_path, "w", encoding="utf-8") as f:
+        yaml.dump(data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
