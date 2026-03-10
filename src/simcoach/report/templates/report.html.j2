@@ -564,43 +564,42 @@
   const ref  = DATA.reference;
 
   // ── colour / theme constants ────────────────────────────────────────────
-  const C_BEST    = '#4ade80';
-  const C_REF     = '#60a5fa';
-  const C_PAPER   = '#1a1d27';
-  const C_PLOT    = '#0f1117';
-  const C_GRID    = '#2e3250';
-  const C_TEXT    = '#7a7f9a';
-  const C_AXIS    = '#e8eaf0';
+  const C_BEST  = '#4ade80';
+  const C_REF   = '#60a5fa';
+  const C_PAPER = '#1a1d27';
+  const C_PLOT  = '#0f1117';
+  const C_GRID  = '#2e3250';
+  const C_TEXT  = '#7a7f9a';
+  const C_AXIS  = '#e8eaf0';
 
   // ── channel definitions ─────────────────────────────────────────────────
+  // htpl: Plotly hovertemplate format string for the y value only.
+  // %.1%  → multiply by 100, 1 decimal, add % sign  (throttle/brake 0-1)
+  // %.1f  → 1 decimal float                          (speed)
+  // %.3f  → 3 decimal float                          (steering)
   const channels = [
-    { id: 'chartSpeed',    key: 'speed',    label: 'Speed (km/h)', yRange: null,      fmt: v => v.toFixed(1) + ' km/h' },
-    { id: 'chartThrottle', key: 'throttle', label: 'Throttle',     yRange: [0, 1.05], fmt: v => (v * 100).toFixed(1) + '%' },
-    { id: 'chartBrake',    key: 'brake',    label: 'Brake',        yRange: [0, 1.05], fmt: v => (v * 100).toFixed(1) + '%' },
-    { id: 'chartSteering', key: 'steering', label: 'Steering',     yRange: [-1.05, 1.05], fmt: v => v.toFixed(3) },
+    { id: 'chartSpeed',    key: 'speed',    label: 'Speed (km/h)', yRange: null,          htpl: '%{y:.1f} km/h' },
+    { id: 'chartThrottle', key: 'throttle', label: 'Throttle',     yRange: [0, 1.05],     htpl: '%{y:.1%}'      },
+    { id: 'chartBrake',    key: 'brake',    label: 'Brake',        yRange: [0, 1.05],     htpl: '%{y:.1%}'      },
+    { id: 'chartSteering', key: 'steering', label: 'Steering',     yRange: [-1.05, 1.05], htpl: '%{y:.3f}'      },
   ];
 
   const isLast = i => i === channels.length - 1;
 
-  // ── build traces for one channel ────────────────────────────────────────
-  function makeTraces(key, fmt) {
-    const hover = pos.map((p, i) => {
-      const pct = (p * 100).toFixed(1) + '%';
-      let tip = `<b>pos ${pct}</b><br>Best: ${fmt(best[key][i])}`;
-      if (ref) tip += `<br>Ref: ${fmt(ref[key][i])}`;
-      return tip;
-    });
-
+  // ── build traces: each trace owns ONLY its own value in hovertemplate ───
+  // FIX: previously both traces shared the same hovertext (which contained
+  //      both Best and Ref data), causing every hover to show duplicate info.
+  //      Now each trace uses its own hovertemplate referencing only %{y}.
+  //      With hovermode:'x unified', Plotly assembles one tooltip box that
+  //      shows the position once and each trace's value on a separate line.
+  function makeTraces(key, htpl) {
     const traces = [{
       x: pos,
       y: best[key],
       name: 'Best Lap',
       mode: 'lines',
       line: { color: C_BEST, width: 1.8 },
-      hoverinfo: 'text',
-      hovertext: hover,
-      legendgroup: 'best',
-      showlegend: false,
+      hovertemplate: htpl + '<extra>Best</extra>',
     }];
     if (ref) {
       traces.push({
@@ -609,28 +608,26 @@
         name: 'Reference',
         mode: 'lines',
         line: { color: C_REF, width: 1.8, dash: 'dot' },
-        hoverinfo: 'text',
-        hovertext: hover,
-        legendgroup: 'ref',
-        showlegend: false,
+        hovertemplate: htpl + '<extra>Ref</extra>',
       });
     }
     return traces;
   }
 
-  // ── shared axis / layout builder ────────────────────────────────────────
+  // ── layout builder ──────────────────────────────────────────────────────
   function makeLayout(label, yRange, showXAxis) {
     return {
       height: 165,
       margin: { t: 6, b: showXAxis ? 36 : 6, l: 68, r: 12 },
       paper_bgcolor: C_PAPER,
       plot_bgcolor:  C_PLOT,
-      font:  { color: C_TEXT, family: "'Segoe UI', system-ui, sans-serif", size: 11 },
+      font: { color: C_TEXT, family: "'Segoe UI', system-ui, sans-serif", size: 11 },
       showlegend: false,
       hovermode: 'x unified',
       xaxis: {
         visible: showXAxis,
-        tickformat: '.0%',
+        tickformat:  '.0%',
+        hoverformat: '.1%',   // formats the shared x label in unified tooltip
         range: [0, 1],
         gridcolor:     C_GRID,
         zerolinecolor: C_GRID,
@@ -659,35 +656,63 @@
     displaylogo: false,
   };
 
-  // ── render all charts ───────────────────────────────────────────────────
-  channels.forEach(({ id, key, label, yRange, fmt }, i) => {
-    Plotly.newPlot(id, makeTraces(key, fmt), makeLayout(label, yRange, isLast(i)), plotConfig);
+  // ── initial render ──────────────────────────────────────────────────────
+  channels.forEach(({ id, key, label, yRange, htpl }, i) => {
+    Plotly.newPlot(id, makeTraces(key, htpl), makeLayout(label, yRange, isLast(i)), plotConfig);
   });
 
-  // ── linked x-axis: zoom/pan on any chart syncs all others ───────────────
-  let syncing = false;
+  // ── linked x-axis sync (async-safe) ────────────────────────────────────
+  //
+  // ROOT CAUSE of the original freeze:
+  //   Plotly.relayout() is async (returns a Promise). The old code set
+  //   `syncing = false` immediately after launching the three relayout calls,
+  //   before those Promises resolved. The deferred `plotly_relayout` events
+  //   that fired later all saw syncing=false and each tried to sync the
+  //   remaining charts, producing an exponentially growing event storm.
+  //
+  // FIX:
+  //   Make the event handler async. Use Promise.all to await every relayout
+  //   call before releasing the lock. try/finally ensures the lock is always
+  //   released even if a relayout throws. Only x-axis fields are synced;
+  //   all other relayout payloads (y-axis, legend, etc.) are ignored.
+  //
+  let isSyncing = false;
+
   channels.forEach(({ id }) => {
-    document.getElementById(id).on('plotly_relayout', function (ed) {
-      if (syncing) return;
-      syncing = true;
+    document.getElementById(id).on('plotly_relayout', async function (ed) {
+      if (isSyncing) return;
+
       let update = null;
-      if (ed['xaxis.range[0]'] !== undefined) {
+      if ('xaxis.range[0]' in ed) {
         update = { 'xaxis.range[0]': ed['xaxis.range[0]'], 'xaxis.range[1]': ed['xaxis.range[1]'] };
       } else if (ed['xaxis.autorange'] === true) {
         update = { 'xaxis.autorange': true };
       }
-      if (update) {
-        channels.filter(c => c.id !== id).forEach(c => Plotly.relayout(c.id, update));
+      if (!update) return;  // ignore non-x relayout events (y zoom, etc.)
+
+      isSyncing = true;
+      try {
+        await Promise.all(
+          channels.filter(c => c.id !== id).map(c => Plotly.relayout(c.id, update))
+        );
+      } finally {
+        isSyncing = false;
       }
-      syncing = false;
     });
   });
 
   // ── reset zoom button ────────────────────────────────────────────────────
-  document.getElementById('btnResetZoom').addEventListener('click', () => {
-    channels.forEach(({ id }) =>
-      Plotly.relayout(id, { 'xaxis.autorange': true, 'yaxis.autorange': true })
-    );
+  document.getElementById('btnResetZoom').addEventListener('click', async () => {
+    isSyncing = true;
+    try {
+      await Promise.all(
+        channels.map(({ id }) =>
+          Plotly.relayout(id, { 'xaxis.autorange': true, 'yaxis.autorange': true })
+        )
+      );
+    } finally {
+      isSyncing = false;
+    }
   });
 
 })();
