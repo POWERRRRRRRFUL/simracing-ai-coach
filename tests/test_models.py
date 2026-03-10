@@ -200,3 +200,74 @@ def test_reference_manager_save_load(tmp_path):
     updated3, pb3 = mgr.update_pb_if_faster(session, faster_lap)
     assert updated3 is True
     assert pb3.lap_time_ms == 116000
+
+
+# ── World position fields ──────────────────────────────────────────────────────
+
+def test_frame_world_pos_defaults_to_none():
+    """world_pos_x/y/z default to None for frames that don't set them."""
+    f = _make_frame(0.5)
+    assert f.world_pos_x is None
+    assert f.world_pos_y is None
+    assert f.world_pos_z is None
+
+
+def test_frame_world_pos_set():
+    """world_pos_x/y/z accept arbitrary signed floats."""
+    f = TelemetryFrame(
+        timestamp=0, lap_id=0,
+        normalized_track_position=0.5,
+        speed_kmh=100, throttle=0.5, brake=0.0,
+        steering=0.0, gear=3, rpm=5000,
+        world_pos_x=142.35, world_pos_y=0.0, world_pos_z=-201.88,
+    )
+    assert abs(f.world_pos_x - 142.35) < 0.01
+    assert f.world_pos_y == 0.0
+    assert abs(f.world_pos_z - (-201.88)) < 0.01
+
+
+def test_mock_source_generates_world_pos():
+    """MockTelemetrySource populates world_pos_x/z on every frame."""
+    from simcoach.telemetry_bridge.mock_source import MockTelemetrySource
+
+    src = MockTelemetrySource(n_laps=1, seed=42)
+    src.connect()
+    frames = []
+    for _ in range(2000):
+        f = src.read_frame()
+        if f is not None:
+            frames.append(f)
+        if src.is_done:
+            break
+    src.disconnect()
+
+    assert len(frames) > 10
+    assert all(f.world_pos_x is not None for f in frames)
+    assert all(f.world_pos_z is not None for f in frames)
+    xs = [f.world_pos_x for f in frames]
+    assert max(xs) - min(xs) > 100  # track spans at least 100 m in X
+
+
+def test_resample_includes_world_pos_keys():
+    """resample_trace emits wx/wz keys; None when frames have no position."""
+    frames = [_make_frame(i / 99) for i in range(100)]  # no world_pos set
+    result = resample_trace(frames, n_points=10)
+    assert all("wx" in p and "wz" in p for p in result)
+    assert all(p["wx"] is None for p in result)
+
+    # With position data set
+    frames_with_pos = []
+    for i in range(100):
+        pos = i / 99
+        f = TelemetryFrame(
+            timestamp=pos * 120, lap_id=0,
+            normalized_track_position=pos,
+            speed_kmh=100, throttle=0.5, brake=0.0,
+            steering=0.0, gear=3, rpm=5000,
+            world_pos_x=float(i), world_pos_z=float(-i),
+        )
+        frames_with_pos.append(f)
+
+    result2 = resample_trace(frames_with_pos, n_points=10)
+    assert all(p["wx"] is not None for p in result2)
+    assert all(p["wz"] is not None for p in result2)

@@ -54,6 +54,10 @@ def resample_trace(frames: list[TelemetryFrame], n_points: int = 100) -> list[di
                     "str": round(_lerp(f.steering, f2.steering, t), 3),
                     "gear": f.gear,
                     "rpm": round(_lerp(f.rpm, f2.rpm, t)),
+                    "wx": round(_lerp(f.world_pos_x, f2.world_pos_x, t), 2)
+                          if (f.world_pos_x is not None and f2.world_pos_x is not None) else None,
+                    "wz": round(_lerp(f.world_pos_z, f2.world_pos_z, t), 2)
+                          if (f.world_pos_z is not None and f2.world_pos_z is not None) else None,
                 })
                 continue
 
@@ -65,6 +69,8 @@ def resample_trace(frames: list[TelemetryFrame], n_points: int = 100) -> list[di
             "str": round(f.steering, 3),
             "gear": f.gear,
             "rpm": round(f.rpm),
+            "wx": f.world_pos_x,
+            "wz": f.world_pos_z,
         })
 
     return result

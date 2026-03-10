@@ -28,6 +28,19 @@ from simcoach.models.telemetry import (
 from simcoach.utils.sampling import compute_lap_stats, resample_trace
 
 
+def _extract_pos_arrays(trace: list[dict]) -> dict:
+    """Extract world position arrays from a resampled trace.
+
+    Returns {"x": [...], "z": [...]} or {"x": None, "z": None} when the trace
+    has no position data (old sessions recorded before this feature).
+    """
+    xs = [p.get("wx") for p in trace]
+    zs = [p.get("wz") for p in trace]
+    if all(v is None for v in xs):
+        return {"x": None, "z": None}
+    return {"x": xs, "z": zs}
+
+
 class ContextBuilder:
     """Transforms a Session (and optional ReferenceLap) into an LLMAnalysisContext."""
 
@@ -124,7 +137,12 @@ class ContextBuilder:
             n_ref = min(chart_points, len(reference_lap.frames))
             ref_trace = resample_trace(reference_lap.frames, n_ref) if n_ref > 0 else []
 
-        return {"best": best_trace, "reference": ref_trace}
+        return {
+            "best": best_trace,
+            "reference": ref_trace,
+            "best_pos": _extract_pos_arrays(best_trace),
+            "ref_pos": _extract_pos_arrays(ref_trace) if ref_trace is not None else None,
+        }
 
     # ── Internal ──────────────────────────────────────────────────────────────
 

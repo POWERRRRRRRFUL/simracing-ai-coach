@@ -314,6 +314,9 @@ class ACSharedMemorySource(TelemetrySource):
                 tyre_slip_rr=phy.wheelSlip[3],
                 abs_active=phy.abs > 0.1,
                 tc_active=phy.tc > 0.1,
+                world_pos_x=float(gfx.carCoordinates[0]),
+                world_pos_y=float(gfx.carCoordinates[1]),
+                world_pos_z=float(gfx.carCoordinates[2]),
             )
 
         except Exception:

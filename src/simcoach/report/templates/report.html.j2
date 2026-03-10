@@ -154,6 +154,15 @@
       border-radius: var(--radius);
       padding: 16px 20px 8px;
     }
+    .track-map-no-data {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 260px;
+      color: var(--muted);
+      font-size: 0.9rem;
+      font-style: italic;
+    }
     .chart-toolbar {
       display: flex;
       align-items: center;
@@ -400,6 +409,27 @@
   </div>
 </div>
 {% endif %}
+
+<!-- ── Track Map ──────────────────────────────────────────────────────────── -->
+<div class="section">
+  <div class="section-title">Track Map — Driving Line</div>
+  {% if track_map_data_json and track_map_data_json != 'null' %}
+  <div class="chart-container">
+    <div class="chart-toolbar">
+      <div class="legend">
+        <span><span class="legend-dot" style="background:#4ade80"></span>Best Lap</span>
+        <span style="margin-left:10px;font-size:0.78rem;color:var(--muted)">colour = speed · green=slow · yellow=mid · red=fast</span>
+      </div>
+      <span class="hint">Scroll to zoom · Drag to pan · Double-click to reset</span>
+    </div>
+    <div id="chartTrackMap" class="plotly-chart"></div>
+  </div>
+  {% else %}
+  <div class="chart-container">
+    <div class="track-map-no-data">No world position data in this session. Re-record with AC running.</div>
+  </div>
+  {% endif %}
+</div>
 
 <!-- ── Telemetry Charts ────────────────────────────────────────────────────── -->
 <div class="section">
@@ -715,6 +745,103 @@
     }
   });
 
+})();
+</script>
+
+<!-- ── Track map (Plotly) ─────────────────────────────────────────────────── -->
+<script>
+(function () {
+  const MAP = {{ track_map_data_json | safe }};
+  if (!MAP || !MAP.best || !MAP.best.x) return;
+
+  const C_PAPER = '#1a1d27';
+  const C_PLOT  = '#0f1117';
+  const C_GRID  = '#2e3250';
+  const C_TEXT  = '#7a7f9a';
+
+  const speedColorscale = [
+    [0.0, '#22c55e'],
+    [0.5, '#eab308'],
+    [1.0, '#ef4444'],
+  ];
+
+  const speeds = MAP.best.speed;
+  const sMin = Math.min(...speeds);
+  const sMax = Math.max(...speeds);
+
+  const traces = [{
+    x: MAP.best.x,
+    y: MAP.best.z,
+    mode: 'lines+markers',
+    name: 'Best Lap',
+    line: { width: 0 },
+    marker: {
+      size: 3,
+      color: speeds,
+      colorscale: speedColorscale,
+      showscale: true,
+      colorbar: {
+        title: { text: 'km/h', font: { color: C_TEXT, size: 10 } },
+        tickfont: { color: C_TEXT, size: 9 },
+        thickness: 12,
+        len: 0.6,
+        x: 1.02,
+      },
+      cmin: sMin,
+      cmax: sMax,
+    },
+    hovertemplate: 'x: %{x:.0f} m  z: %{y:.0f} m<br>speed: %{marker.color:.0f} km/h<extra>Best</extra>',
+  }];
+
+  if (MAP.reference && MAP.reference.x) {
+    traces.push({
+      x: MAP.reference.x,
+      y: MAP.reference.z,
+      mode: 'lines',
+      name: 'Reference',
+      line: { color: '#60a5fa', width: 1.5, dash: 'dot' },
+      hovertemplate: 'x: %{x:.0f} m  z: %{y:.0f} m<extra>Ref</extra>',
+    });
+  }
+
+  // Start/finish marker at position 0
+  traces.push({
+    x: [MAP.best.x[0]],
+    y: [MAP.best.z[0]],
+    mode: 'markers',
+    name: 'S/F',
+    marker: { symbol: 'diamond', size: 10, color: '#e63946', line: { color: '#fff', width: 1 } },
+    hovertemplate: 'Start / Finish<extra></extra>',
+  });
+
+  const layout = {
+    height: 420,
+    margin: { t: 12, b: 40, l: 50, r: 80 },
+    paper_bgcolor: C_PAPER,
+    plot_bgcolor:  C_PLOT,
+    font: { color: C_TEXT, family: "'Segoe UI', system-ui, sans-serif", size: 11 },
+    showlegend: true,
+    legend: { bgcolor: 'rgba(0,0,0,0)', bordercolor: C_GRID, borderwidth: 1, font: { color: C_TEXT, size: 10 } },
+    xaxis: {
+      title: { text: 'X (m)', font: { color: C_TEXT, size: 10 } },
+      gridcolor: C_GRID, zerolinecolor: C_GRID, color: C_TEXT,
+      scaleanchor: 'y', scaleratio: 1,
+    },
+    yaxis: {
+      title: { text: 'Z (m)', font: { color: C_TEXT, size: 10 } },
+      gridcolor: C_GRID, zerolinecolor: C_GRID, color: C_TEXT,
+    },
+    hovermode: 'closest',
+    dragmode: 'zoom',
+  };
+
+  Plotly.newPlot('chartTrackMap', traces, layout, {
+    responsive: true,
+    scrollZoom: true,
+    displayModeBar: true,
+    modeBarButtonsToRemove: ['toImage', 'sendDataToCloud', 'lasso2d', 'select2d'],
+    displaylogo: false,
+  });
 })();
 </script>
 </body>

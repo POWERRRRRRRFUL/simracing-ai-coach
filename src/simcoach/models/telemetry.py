@@ -36,6 +36,12 @@ class TelemetryFrame(BaseModel):
     abs_active: bool = False
     tc_active: bool = False
 
+    # World position (AC coordinate system: X=lateral, Y=elevation, Z=longitudinal)
+    # Populated by AC SHM source and mock source; None for old sessions / unsupported sources.
+    world_pos_x: float | None = Field(None)
+    world_pos_y: float | None = Field(None)
+    world_pos_z: float | None = Field(None)
+
     model_config = ConfigDict(extra="ignore")
 
 

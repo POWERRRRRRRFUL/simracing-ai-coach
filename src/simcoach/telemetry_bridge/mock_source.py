@@ -114,6 +114,7 @@ class MockTelemetrySource(TelemetrySource):
         speed, throttle, brake, gear, rpm, steering = _compute_controls(
             pos, seg, self._rng, lap_offset_s
         )
+        wx, wy, wz = _world_position(pos)
 
         return TelemetryFrame(
             timestamp=ts,
@@ -130,6 +131,9 @@ class MockTelemetrySource(TelemetrySource):
             g_lon=round((throttle - brake) * 0.8 + self._rng.gauss(0, 0.05), 3),
             abs_active=brake > 0.8 and speed > 120,
             tc_active=throttle > 0.9 and speed < 80 and gear <= 2,
+            world_pos_x=wx,
+            world_pos_y=wy,
+            world_pos_z=wz,
         )
 
     @property
@@ -150,6 +154,24 @@ class MockTelemetrySource(TelemetrySource):
 
 
 # ─── Internal helpers ─────────────────────────────────────────────────────────
+
+def _world_position(pos: float) -> tuple[float, float, float]:
+    """Map normalized track position [0, 1] to (x, y, z) world coordinates in metres.
+
+    Produces a plausible closed-circuit shape using a parametric formula:
+    - Base shape: stretched oval with slight asymmetry
+    - Hairpin notch at ~pos=0.33 (matching the TRACK_SEGMENTS hairpin)
+    - Chicane kink at ~pos=0.53 (matching the chicane segment)
+    """
+    theta = 2 * math.pi * pos
+    x = 350.0 * math.cos(theta)
+    z = 250.0 * math.sin(theta) * (1 + 0.25 * math.cos(theta))
+    # hairpin notch
+    z -= 80.0 * math.exp(-((pos - 0.33) ** 2) / 0.04)
+    # chicane kink
+    x += 30.0 * math.sin(2 * math.pi * pos) * math.exp(-((pos - 0.53) ** 2) / 0.02)
+    return round(x, 2), 0.0, round(z, 2)
+
 
 def _get_segment(pos: float) -> tuple:
     for seg in TRACK_SEGMENTS:

@@ -137,12 +137,14 @@ class ReportGenerator:
 
         chart_data    = self._build_chart_data(best_trace, ref_trace)
         lap_summaries = ctx.get("all_lap_summaries", [])
+        track_map_data = self._build_track_map_data(report, best_trace)
 
         template = self._env.get_template("report.html.j2")
         html = template.render(
             report=report,
             structured=report.structured_analysis,  # convenience shorthand
             chart_data_json=json.dumps(chart_data),
+            track_map_data_json=json.dumps(track_map_data),
             lap_summaries=lap_summaries,
             generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         )
@@ -250,4 +252,35 @@ class ReportGenerator:
                 "steering": extract(ref_trace, "str"),
                 "gear":     extract(ref_trace, "gear"),
             } if ref_trace else None,
+        }
+
+    def _build_track_map_data(
+        self,
+        report: AnalysisReport,
+        best_trace: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        """Extract world position arrays for the track map visualization.
+
+        Returns None when the session has no position data (old recordings).
+        """
+        ct = report.chart_traces
+        if not ct:
+            return None
+
+        bp = ct.get("best_pos", {})
+        if not bp or bp.get("x") is None:
+            return None
+
+        rp = ct.get("ref_pos")
+
+        return {
+            "best": {
+                "x": bp["x"],
+                "z": bp["z"],
+                "speed": [round(p.get("spd", 0), 1) for p in best_trace],
+            },
+            "reference": {
+                "x": rp["x"],
+                "z": rp["z"],
+            } if (rp and rp.get("x") is not None) else None,
         }
