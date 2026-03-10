@@ -797,10 +797,11 @@
     traces.push({
       x: MAP.reference.x,
       y: MAP.reference.z,
+      customdata: MAP.reference.speed,
       mode: 'lines',
       name: 'Reference',
       line: { color: '#60a5fa', width: 1.5, dash: 'dot' },
-      hovertemplate: 'x: %{x:.0f} m  z: %{y:.0f} m<extra>Ref</extra>',
+      hovertemplate: 'x: %{x:.0f} m  z: %{y:.0f} m<br>speed: %{customdata:.0f} km/h<extra>Ref</extra>',
     });
   }
 

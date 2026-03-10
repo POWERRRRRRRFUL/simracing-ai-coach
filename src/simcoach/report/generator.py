@@ -137,7 +137,7 @@ class ReportGenerator:
 
         chart_data    = self._build_chart_data(best_trace, ref_trace)
         lap_summaries = ctx.get("all_lap_summaries", [])
-        track_map_data = self._build_track_map_data(report, best_trace)
+        track_map_data = self._build_track_map_data(report, best_trace, ref_trace)
 
         template = self._env.get_template("report.html.j2")
         html = template.render(
@@ -258,6 +258,7 @@ class ReportGenerator:
         self,
         report: AnalysisReport,
         best_trace: list[dict[str, Any]],
+        ref_trace: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any] | None:
         """Extract world position arrays for the track map visualization.
 
@@ -273,14 +274,19 @@ class ReportGenerator:
 
         rp = ct.get("ref_pos")
 
+        ref_entry = None
+        if rp and rp.get("x") is not None:
+            ref_entry = {
+                "x": rp["x"],
+                "z": rp["z"],
+                "speed": [round(p.get("spd", 0), 1) for p in (ref_trace or [])],
+            }
+
         return {
             "best": {
                 "x": bp["x"],
                 "z": bp["z"],
                 "speed": [round(p.get("spd", 0), 1) for p in best_trace],
             },
-            "reference": {
-                "x": rp["x"],
-                "z": rp["z"],
-            } if (rp and rp.get("x") is not None) else None,
+            "reference": ref_entry,
         }
