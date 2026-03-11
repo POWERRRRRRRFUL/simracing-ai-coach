@@ -33,15 +33,25 @@ class AppService:
 
     # ── Settings ────────────────────────────────────────────────────────────
 
+    def get_config_path(self) -> Path:
+        """Return the resolved path to the active config file."""
+        return self._config_path.resolve()
+
     def load_settings(self) -> AppConfig:
         """Re-read configuration from disk."""
         self._config = load_config(self._config_path)
         return self._config
 
     def save_settings(self, config: AppConfig) -> None:
-        """Persist configuration to config.yaml."""
+        """Persist configuration to config.yaml and reload from disk.
+
+        Reloading after save ensures the in-memory config reflects exactly
+        what is on disk (including any env-var-vs-yaml precedence logic).
+        """
         save_config(config, self._config_path)
-        self._config = config
+        # Reload from disk so the in-memory state matches the persisted file
+        # and the new precedence rules are applied cleanly.
+        self._config = load_config(self._config_path)
 
     def get_config(self) -> AppConfig:
         """Return the in-memory configuration (no disk I/O)."""
@@ -326,10 +336,16 @@ class AppService:
             lap = min(valid_laps, key=lambda l: l.lap_time_ms)
         return self._ref_mgr().export_ref(session, lap, output_path=output_path)
 
-    def import_reference(self, file_path: Path) -> "SimcoachReference":
-        """Import a .simcoachref into the library."""
-        from simcoach.models.reference import SimcoachReference
+    def import_reference(self, file_path: Path) -> tuple["SimcoachReference", Path]:
+        """Import a .simcoachref into the library.
+
+        Returns (SimcoachReference, destination path in library).
+        """
         return self._ref_mgr().import_ref(file_path)
+
+    def get_last_session(self) -> Session | None:
+        """Return the most recently recorded/generated session (in-memory), or None."""
+        return self._last_session
 
     def list_references(self, car_id: str, track_id: str) -> list[dict]:
         """List all .simcoachref files for a car+track."""

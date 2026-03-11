@@ -1,4 +1,4 @@
-"""Configuration loading — merges config.yaml with .env overrides."""
+"""Configuration loading — config.yaml wins over .env / env vars."""
 
 from __future__ import annotations
 
@@ -66,56 +66,84 @@ def _deep_merge(base: dict, override: dict) -> dict:
 
 
 def load_config(config_path: str | Path | None = None) -> AppConfig:
-    """
-    Load configuration from:
-    1. Built-in defaults (AppConfig defaults)
-    2. config.yaml (if it exists)
-    3. Environment variables (highest priority)
+    """Load configuration.
 
-    Priority: env vars > config.yaml > defaults
-    """
-    raw: dict[str, Any] = {}
+    Priority (highest wins):
+        config.yaml non-empty values  >  env vars / .env  >  built-in defaults
 
-    # 1. Try to load YAML config
+    config.yaml always wins for any LLM credential it explicitly sets to a
+    non-empty value.  Env vars (.env or shell) are used only as a fallback when
+    config.yaml has no value for that field.
+
+    This guarantees that credentials saved through the GUI persist across
+    restarts and are never silently overridden by a stale .env file.
+    """
+    resolved_path: Path | None = None
+
+    # ── 1. Find and read config.yaml ─────────────────────────────────────────
     if config_path is None:
-        # Search common locations
-        candidates = [
-            Path("config.yaml"),
-            Path("configs/config.yaml"),
-        ]
-        for candidate in candidates:
+        for candidate in [Path("config.yaml"), Path("configs/config.yaml")]:
             if candidate.exists():
                 config_path = candidate
                 break
 
+    yaml_data: dict[str, Any] = {}
     if config_path and Path(config_path).exists():
-        with open(config_path, encoding="utf-8") as f:
-            file_data = yaml.safe_load(f) or {}
-        raw = _deep_merge(raw, file_data)
+        resolved_path = Path(config_path)
+        with open(resolved_path, encoding="utf-8") as f:
+            yaml_data = yaml.safe_load(f) or {}
 
-    # 2. Apply environment variable overrides
+    # ── 2. Start from yaml data (highest priority) ────────────────────────────
+    raw = dict(yaml_data)
+
+    # ── 3. Apply env vars only for LLM fields absent/empty in config.yaml ────
+    yaml_llm = yaml_data.get("llm", {})
     env_api_key = os.getenv("LLM_API_KEY", "")
     env_base_url = os.getenv("LLM_BASE_URL", "")
     env_model = os.getenv("LLM_MODEL", "")
 
-    if env_api_key:
-        raw.setdefault("llm", {})["api_key"] = env_api_key
-    if env_base_url:
-        raw.setdefault("llm", {})["base_url"] = env_base_url
-    if env_model:
-        raw.setdefault("llm", {})["model"] = env_model
+    env_applied: list[str] = []
+    yaml_wins: list[str] = []
+    llm_raw: dict = dict(raw.get("llm", {}))
+
+    for field, env_val in [
+        ("api_key", env_api_key),
+        ("base_url", env_base_url),
+        ("model", env_model),
+    ]:
+        yaml_val = yaml_llm.get(field, "")
+        if yaml_val:
+            # config.yaml has an explicit non-empty value — it wins
+            if env_val and env_val != yaml_val:
+                yaml_wins.append(field)
+        elif env_val:
+            # config.yaml field absent/empty — use env var as fallback
+            llm_raw[field] = env_val
+            env_applied.append(field)
+
+    if llm_raw:
+        raw["llm"] = llm_raw
 
     config = AppConfig.model_validate(raw)
 
-    # If api_key still empty, try direct env read (handles case where dotenv wasn't loaded)
-    if not config.llm.api_key:
-        config.llm.api_key = os.environ.get("LLM_API_KEY", "")
+    # ── Logging ───────────────────────────────────────────────────────────────
+    if resolved_path:
+        print(f"[config] Loaded: {resolved_path.resolve()}")
+    else:
+        print("[config] No config.yaml found — using built-in defaults + env vars")
+
+    if env_applied:
+        print(f"[config] Env var fallback applied for: {', '.join(env_applied)}")
+    if yaml_wins:
+        print(f"[config] config.yaml overrides env var for: {', '.join(yaml_wins)}")
 
     return config
 
 
 def save_config(config: AppConfig, config_path: str | Path = "config.yaml") -> None:
     """Serialize AppConfig back to YAML file."""
+    path = Path(config_path)
     data = config.model_dump()
-    with open(config_path, "w", encoding="utf-8") as f:
+    with open(path, "w", encoding="utf-8") as f:
         yaml.dump(data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+    print(f"[config] Saved: {path.resolve()}")

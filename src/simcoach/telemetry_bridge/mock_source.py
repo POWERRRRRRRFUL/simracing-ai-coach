@@ -56,7 +56,10 @@ class MockTelemetrySource(TelemetrySource):
     ) -> None:
         self._car_id = car_id
         self._track_id = track_id
-        self._n_laps = n_laps
+        # SessionRecorder treats the first lap boundary as the prologue crossing and
+        # flags that initial segment as incomplete (complete=False).  Generate one
+        # extra internal lap so callers receive exactly n_laps valid completed laps.
+        self._n_laps = n_laps + 1
         self._sample_rate = sample_rate_hz
         self._rng = random.Random(seed)
 

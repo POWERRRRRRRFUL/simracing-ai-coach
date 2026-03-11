@@ -106,11 +106,11 @@ class ReferenceManager:
 
     def import_ref(
         self, file_path: Path
-    ) -> SimcoachReference:
+    ) -> tuple[SimcoachReference, Path]:
         """Import a .simcoachref file into the library.
 
         Validates the file, copies it to the appropriate car/track library directory.
-        Returns the parsed SimcoachReference.
+        Returns (parsed SimcoachReference, destination path in library).
         Raises ValueError if the file is invalid.
         """
         ref = self._load_simcoachref(file_path)
@@ -132,7 +132,7 @@ class ReferenceManager:
         if dest.resolve() != file_path.resolve():
             shutil.copy2(file_path, dest)
 
-        return ref
+        return ref, dest
 
     # ── Library management ───────────────────────────────────────────────────
 

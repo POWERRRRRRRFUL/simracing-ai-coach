@@ -7,9 +7,11 @@ from pathlib import Path
 from PySide6.QtCore import QThread, QTimer, Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
+    QFileDialog,
     QGraphicsDropShadowEffect,
     QLabel,
     QHBoxLayout,
+    QMessageBox,
     QScrollArea,
     QVBoxLayout,
     QWidget,
@@ -22,6 +24,7 @@ from simcoach.app.widgets.log_panel import LogPanel
 from simcoach.app.widgets.settings_card import SettingsCard
 from simcoach.app.widgets.status_bar import StatusBar
 from simcoach.app.workers import AnalysisWorker, DemoWorker, RecordingWorker
+from simcoach.app.widgets.reference_dialogs import ExportLapDialog
 
 
 class MainWindow(QWidget):
@@ -124,6 +127,8 @@ class MainWindow(QWidget):
         self._actions.open_report_clicked.connect(self._open_last_report)
         self._actions.open_folder_clicked.connect(self._open_output_folder)
         self._actions.demo_clicked.connect(self._run_demo)
+        self._actions.export_ref_clicked.connect(self._export_reference)
+        self._actions.import_ref_clicked.connect(self._import_reference)
 
     # ── Settings ────────────────────────────────────────────────────────────
 
@@ -135,7 +140,10 @@ class MainWindow(QWidget):
         try:
             config = self._settings.apply_to_config(self._service.get_config())
             self._service.save_settings(config)
-            self._log("Settings saved.")
+            cfg_path = self._service.get_config_path()
+            self._log(f"Settings saved → {cfg_path}")
+            # Refresh the displayed values to reflect exactly what was persisted
+            self._load_settings()
         except Exception as exc:
             self._log(f"ERROR saving settings: {exc}")
 
@@ -273,6 +281,147 @@ class MainWindow(QWidget):
         self._analysis_worker.error.connect(self._analysis_thread.quit)
 
         self._analysis_thread.start()
+
+    # ── Reference export / import ────────────────────────────────────────────
+
+    def _get_current_session(self):
+        """Return the most recent session from memory or the latest file on disk."""
+        if self._last_session:
+            return self._last_session
+        s = self._service.get_last_session()
+        if s:
+            return s
+        path = self._service.get_latest_session()
+        if path:
+            try:
+                return self._service.load_session(path)
+            except Exception:
+                pass
+        return None
+
+    def _export_reference(self) -> None:
+        # ── Step 1: choose source ────────────────────────────────────────────
+        src_msg = QMessageBox(self)
+        src_msg.setWindowTitle("Export Reference Lap")
+        src_msg.setText("Which session do you want to export from?")
+        current_btn = src_msg.addButton(
+            "Latest Session", QMessageBox.ButtonRole.AcceptRole
+        )
+        file_btn = src_msg.addButton(
+            "Choose File…", QMessageBox.ButtonRole.ActionRole
+        )
+        src_msg.addButton(QMessageBox.StandardButton.Cancel)
+        src_msg.exec()
+
+        clicked = src_msg.clickedButton()
+        if clicked is current_btn:
+            session = self._get_current_session()
+            if session is None:
+                self._log(
+                    "No session available. Run a recording or Demo Analysis first."
+                )
+                return
+        elif clicked is file_btn:
+            session_dir = str(Path(self._service.get_config().recorder.output_dir))
+            session_file, _ = QFileDialog.getOpenFileName(
+                self,
+                "Choose Session File",
+                session_dir,
+                "Session Files (session_*.json);;JSON Files (*.json)",
+            )
+            if not session_file:
+                return
+            try:
+                session = self._service.load_session(Path(session_file))
+            except Exception as exc:
+                self._log(f"Could not load session: {exc}")
+                QMessageBox.critical(self, "Load Failed", str(exc))
+                return
+        else:
+            return  # Cancel / window-close
+
+        # ── Step 2: lap selection ────────────────────────────────────────────
+        valid_laps = [l for l in session.laps if l.is_valid and l.frames]
+        if not valid_laps:
+            self._log("No valid laps in that session to export.")
+            return
+
+        dialog = ExportLapDialog(valid_laps, parent=self)
+        if dialog.exec() != dialog.DialogCode.Accepted:
+            return
+
+        lap = dialog.selected_lap
+        if lap is None:
+            return
+
+        # ── Step 3: save destination ─────────────────────────────────────────
+        default_name = f"{session.car_id}_{session.track_id}_{lap.lap_time_ms}.simcoachref"
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Reference Lap",
+            default_name,
+            "SimCoach Reference (*.simcoachref)",
+        )
+        if not file_path:
+            return
+
+        try:
+            out_path = self._service.export_reference(session, lap.lap_id, Path(file_path))
+            self._log(f"Reference exported: {out_path.name}")
+            QMessageBox.information(
+                self,
+                "Export Successful",
+                f"Reference lap exported to:\n{out_path}",
+            )
+        except Exception as exc:
+            self._log(f"Export error: {exc}")
+            QMessageBox.critical(self, "Export Failed", str(exc))
+
+    def _import_reference(self) -> None:
+        QMessageBox.information(
+            self,
+            "Import Reference Lap",
+            "Import a .simcoachref file shared by another driver.",
+        )
+
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Import Reference Lap",
+            "",
+            "SimCoach Reference (*.simcoachref)",
+        )
+        if not file_path:
+            return
+
+        try:
+            ref, dest_path = self._service.import_reference(Path(file_path))
+        except Exception as exc:
+            self._log(f"Import error: {exc}")
+            QMessageBox.critical(self, "Import Failed", str(exc))
+            return
+
+        m = ref.metadata
+        time_s = m.lap_time_ms / 1000.0
+        mins, secs = int(time_s // 60), time_s % 60
+        summary = f"Car:   {m.car_id}\nTrack: {m.track_id}\nTime:  {mins}:{secs:06.3f}"
+        if m.driver_name:
+            summary += f"\nDriver: {m.driver_name}"
+
+        reply = QMessageBox.question(
+            self,
+            "Reference Imported",
+            f"Successfully imported reference lap.\n\n{summary}\n\nSet this reference as active?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                self._service.set_active_reference(m.car_id, m.track_id, dest_path.name)
+                self._log(f"Active reference set: {dest_path.name}")
+            except Exception as exc:
+                self._log(f"Could not set active reference: {exc}")
+
+        self._log(f"Reference imported: {Path(file_path).name}")
 
     # ── Utility ─────────────────────────────────────────────────────────────
 

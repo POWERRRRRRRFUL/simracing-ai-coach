@@ -14,6 +14,8 @@ class ActionPanel(QFrame):
     open_report_clicked = Signal()
     open_folder_clicked = Signal()
     demo_clicked = Signal()
+    export_ref_clicked = Signal()
+    import_ref_clicked = Signal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -25,11 +27,15 @@ class ActionPanel(QFrame):
         self._start_btn.setEnabled(not is_recording)
         self._stop_btn.setEnabled(is_recording)
         self._demo_btn.setEnabled(not is_recording)
+        self._export_ref_btn.setEnabled(not is_recording)
+        self._import_ref_btn.setEnabled(not is_recording)
 
     def set_analyzing(self, is_analyzing: bool) -> None:
         self._start_btn.setEnabled(not is_analyzing)
         self._stop_btn.setEnabled(False)
         self._demo_btn.setEnabled(not is_analyzing)
+        self._export_ref_btn.setEnabled(not is_analyzing)
+        self._import_ref_btn.setEnabled(not is_analyzing)
 
     def set_report_available(self, available: bool) -> None:
         self._report_btn.setEnabled(available)
@@ -38,6 +44,8 @@ class ActionPanel(QFrame):
         self._start_btn.setEnabled(True)
         self._stop_btn.setEnabled(False)
         self._demo_btn.setEnabled(True)
+        self._export_ref_btn.setEnabled(True)
+        self._import_ref_btn.setEnabled(True)
 
     # ── Internal ────────────────────────────────────────────────────────────
 
@@ -76,6 +84,22 @@ class ActionPanel(QFrame):
         util_row.addWidget(self._folder_btn)
 
         layout.addLayout(util_row)
+
+        # Reference row
+        ref_row = QHBoxLayout()
+        ref_row.setSpacing(10)
+
+        self._export_ref_btn = QPushButton("Export Reference")
+        self._export_ref_btn.setProperty("class", "secondary")
+        self._export_ref_btn.clicked.connect(lambda: self.export_ref_clicked.emit())
+        ref_row.addWidget(self._export_ref_btn)
+
+        self._import_ref_btn = QPushButton("Import Reference")
+        self._import_ref_btn.setProperty("class", "secondary")
+        self._import_ref_btn.clicked.connect(lambda: self.import_ref_clicked.emit())
+        ref_row.addWidget(self._import_ref_btn)
+
+        layout.addLayout(ref_row)
 
         # Demo Analysis — distinct signal, never wired to RecordingWorker
         self._demo_btn = QPushButton("Demo Analysis")

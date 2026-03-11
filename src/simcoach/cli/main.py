@@ -411,7 +411,7 @@ def import_ref(
     )
 
     try:
-        ref = ref_mgr.import_ref(file_path)
+        ref, _ = ref_mgr.import_ref(file_path)
     except Exception as e:
         console.print(f"[red]Import failed:[/red] {e}")
         raise typer.Exit(1)

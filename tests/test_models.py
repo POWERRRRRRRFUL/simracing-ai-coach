@@ -372,7 +372,7 @@ def test_export_import_cycle(tmp_path):
     assert out.suffix == ".simcoachref"
 
     # Import
-    ref = mgr.import_ref(out)
+    ref, dest = mgr.import_ref(out)
     assert ref.metadata.car_id == "ferrari_458_gt2"
     assert ref.metadata.lap_time_ms == 116000
     assert ref.trace.n_points == 50
@@ -486,6 +486,148 @@ def test_list_refs(tmp_path):
     assert len(refs) >= 2
     names = [r["name"] for r in refs]
     assert any("pb.simcoachref" in n for n in names)
+
+
+# ── SessionRecorder lap segmentation ──────────────────────────────────────────
+
+def test_recorder_prologue_and_tail_are_incomplete(tmp_path):
+    """Prologue (pre-first-crossing) and final tail are complete=False, is_valid=False.
+    Middle laps (each completed by a S/F crossing) are complete=True, is_valid=True."""
+    from simcoach.telemetry_bridge.mock_source import MockTelemetrySource
+    from simcoach.recorder.session_recorder import SessionRecorder
+
+    src = MockTelemetrySource(n_laps=3, seed=7)
+    src.connect()
+    recorder = SessionRecorder(
+        source=src,
+        sample_rate_hz=25,
+        output_dir=str(tmp_path / "sessions"),
+    )
+    session = recorder.record(fast_mode=True)
+    src.disconnect()
+
+    # n_laps=3 → mock generates 4 internal laps → recorder sees 3 boundaries:
+    #   prologue (lap 0), 2 complete laps (laps 1-2), 1 incomplete tail (lap 3)
+    assert len(session.laps) == 4, f"Expected 4 laps, got {len(session.laps)}"
+
+    prologue = session.laps[0]
+    assert prologue.complete is False, "Prologue should be complete=False"
+    assert prologue.is_valid is False, "Prologue should be is_valid=False"
+
+    for lap in session.laps[1:-1]:
+        assert lap.complete is True, f"Mid lap {lap.lap_id} should be complete=True"
+        assert lap.is_valid is True, f"Mid lap {lap.lap_id} should be is_valid=True"
+
+    tail = session.laps[-1]
+    assert tail.complete is False, "Final tail should be complete=False"
+    assert tail.is_valid is False, "Final tail should be is_valid=False"
+
+
+def test_recorder_crossing_preserved_when_stop_follows_immediately(tmp_path):
+    """Regression: completed lap must be preserved when recording stops immediately
+    after the S/F crossing, before AC's lap_id field has a chance to update.
+
+    Simulates a 1-frame lag between the physical crossing (detected via position wrap)
+    and the completedLaps counter increment in AC shared memory.
+    """
+    from simcoach.telemetry_bridge.base import TelemetrySource
+    from simcoach.recorder.session_recorder import SessionRecorder
+
+    def _f(pos: float, lap_id: int) -> TelemetryFrame:
+        return TelemetryFrame(
+            timestamp=1.0, lap_id=lap_id,
+            normalized_track_position=pos,
+            speed_kmh=150, throttle=0.8, brake=0.0,
+            steering=0.0, gear=4, rpm=6000,
+        )
+
+    class _FrameSource(TelemetrySource):
+        def __init__(self, frames):
+            self._it = iter(frames)
+            self._done = False
+        def connect(self): return True
+        def disconnect(self): pass
+        @property
+        def car_id(self): return "test_car"
+        @property
+        def track_id(self): return "test_track"
+        @property
+        def is_session_active(self): return not self._done
+        @property
+        def is_done(self): return self._done
+        def read_frame(self):
+            try:
+                return next(self._it)
+            except StopIteration:
+                self._done = True
+                return None
+
+    frames = []
+    # Prologue: 3 frames mid-track with lap_id=0
+    for pos in [0.50, 0.70, 0.95]:
+        frames.append(_f(pos, 0))
+    # First crossing — position wraps to 0.02, but lap_id still 0 (1-frame lag)
+    frames.append(_f(0.02, 0))
+    # lap_id catches up (AC updates completedLaps one frame later)
+    frames.append(_f(0.03, 1))
+    # Full lap body: 40 frames, lap_id=1, ending near 0.95
+    # At sample_rate_hz=1: 40 frames → lap_time_ms=40 000 ms > 30 000 → is_valid
+    for i in range(40):
+        pos = round(0.04 + i * (0.91 / 39), 3)
+        frames.append(_f(pos, 1))
+    # Second crossing — position wraps, lap_id still 1 (simulates stop right after line)
+    frames.append(_f(0.01, 1))
+    # Recording stops immediately — no more frames
+
+    src = _FrameSource(frames)
+    src.connect()
+    recorder = SessionRecorder(
+        source=src,
+        sample_rate_hz=1,   # 1 frame = 1 000 ms — keeps lap time simple
+        output_dir=str(tmp_path / "sessions"),
+    )
+    session = recorder.record(fast_mode=True)
+    src.disconnect()
+
+    assert len(session.laps) == 3, (
+        f"Expected 3 laps (prologue + complete + tail), got {len(session.laps)}: "
+        f"{[(l.complete, l.is_valid, len(l.frames)) for l in session.laps]}"
+    )
+
+    prologue = session.laps[0]
+    assert prologue.complete is False
+    assert prologue.is_valid is False
+
+    completed = session.laps[1]
+    assert completed.complete is True
+    assert completed.is_valid is True   # 42 frames / 1 Hz = 42 000 ms > 30 000
+
+    tail = session.laps[2]
+    assert tail.complete is False
+    assert tail.is_valid is False
+
+
+def test_recorder_only_complete_laps_in_analysis(tmp_path):
+    """ContextBuilder only counts complete, valid laps in valid_laps."""
+    from simcoach.telemetry_bridge.mock_source import MockTelemetrySource
+    from simcoach.recorder.session_recorder import SessionRecorder
+    from simcoach.context_builder import ContextBuilder
+
+    src = MockTelemetrySource(n_laps=3, seed=9)
+    src.connect()
+    recorder = SessionRecorder(
+        source=src,
+        sample_rate_hz=25,
+        output_dir=str(tmp_path / "sessions"),
+    )
+    session = recorder.record(fast_mode=True)
+    src.disconnect()
+
+    complete_count = sum(1 for l in session.laps if l.complete and l.is_valid)
+    assert complete_count == 2, f"Expected 2 complete valid laps, got {complete_count}"
+
+    context = ContextBuilder(resample_points=50).build(session)
+    assert context.valid_laps == complete_count
 
 
 def test_context_builder_with_simcoachref():

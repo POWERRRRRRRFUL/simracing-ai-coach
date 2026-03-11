@@ -321,4 +321,72 @@ QToolTip {{
     padding: 6px 10px;
     font-size: 12px;
 }}
+
+/* ── Dialogs ─────────────────────────────────────────────────────────────── */
+QDialog {{
+    background: {BG_SECONDARY};
+}}
+QDialog QLabel {{
+    color: {TEXT_PRIMARY};
+    background: transparent;
+}}
+
+/* ── List widget ─────────────────────────────────────────────────────────── */
+QListWidget {{
+    background: {SURFACE};
+    border: 1px solid {BORDER};
+    border-radius: 8px;
+    color: {TEXT_PRIMARY};
+    outline: none;
+    padding: 4px;
+}}
+QListWidget::item {{
+    padding: 8px 12px;
+    color: {TEXT_PRIMARY};
+    border-radius: 6px;
+}}
+QListWidget::item:selected {{
+    background: {ACCENT};
+    color: white;
+}}
+QListWidget::item:hover:!selected {{
+    background: rgba(0, 122, 255, 0.08);
+}}
+
+/* ── Message box ─────────────────────────────────────────────────────────── */
+QMessageBox {{
+    background: {BG_SECONDARY};
+}}
+QMessageBox QLabel {{
+    color: {TEXT_PRIMARY};
+    background: transparent;
+    font-size: 13px;
+}}
+QMessageBox QPushButton {{
+    background: transparent;
+    color: {ACCENT};
+    border: 1.5px solid {ACCENT};
+    border-radius: 8px;
+    padding: 8px 20px;
+    font-size: 13px;
+    font-weight: 500;
+    min-width: 0;
+}}
+QMessageBox QPushButton:hover {{
+    background: rgba(0, 122, 255, 0.06);
+}}
+QMessageBox QPushButton:pressed {{
+    background: rgba(0, 122, 255, 0.12);
+}}
+QMessageBox QPushButton:default {{
+    background: {ACCENT};
+    color: white;
+    border: none;
+}}
+QMessageBox QPushButton:default:hover {{
+    background: {ACCENT_HOVER};
+}}
+QMessageBox QPushButton:default:pressed {{
+    background: {ACCENT_PRESSED};
+}}
 """

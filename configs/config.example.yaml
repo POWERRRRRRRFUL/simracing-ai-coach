@@ -1,18 +1,31 @@
 # simcoach configuration — copy this to config.yaml and fill in your values
+#
+#   cp configs/config.example.yaml config.yaml
+#
+# config.yaml is git-ignored so your API key is never committed.
 
 llm:
+  # Your LLM provider API key (required for analysis)
+  api_key: "YOUR_API_KEY_HERE"
+
   # Provider base URL (OpenAI-compatible)
-  # Options: https://api.openai.com/v1 | https://openrouter.ai/api/v1 | http://localhost:11434/v1
+  # OpenAI:      https://api.openai.com/v1
+  # DeepSeek:    https://api.deepseek.com/v1
+  # OpenRouter:  https://openrouter.ai/api/v1
+  # Local/Ollama: http://localhost:11434/v1
   base_url: "https://api.openai.com/v1"
+
   # Model to use — any model your provider supports
   model: "gpt-4o-mini"
+
   # Max tokens for the analysis response
   max_tokens: 2048
+
   # Temperature (0.0–1.0). Lower = more consistent output.
   temperature: 0.3
 
 recorder:
-  # How many telemetry frames per second to capture (AC runs at ~50Hz internally)
+  # How many telemetry frames per second to capture (AC runs at ~50 Hz internally)
   sample_rate_hz: 25
   # Source: "ac_shared_memory" (real AC) or "mock" (demo mode)
   source: "mock"
@@ -23,7 +36,7 @@ context_builder:
   # Points sent to the LLM — keep small to fit within token budget
   resample_points: 100
   # Points used in the interactive HTML chart — higher = more zoom detail
-  # At 25 Hz a 100s lap has ~2500 raw frames; 1000 keeps good detail without
+  # At 25 Hz a 100 s lap has ~2500 raw frames; 1000 keeps good detail without
   # bloating the HTML file size. Reduce if the page feels slow to load.
   chart_points: 1000
   # Show only the top N braking events in context to limit token usage
@@ -40,3 +53,7 @@ report:
 reference:
   # Directory to store personal-best lap files
   pb_dir: "output/pb_laps"
+  # Directory to store exported reference laps (.simcoachref files)
+  library_dir: "output/references"
+  # Number of trace points stored in each reference file
+  trace_points: 1000

@@ -70,6 +70,12 @@ class Lap(BaseModel):
     lap_id: int
     lap_time_ms: int = Field(..., description="Lap time in milliseconds, -1 if invalid")
     is_valid: bool = True
+    complete: bool = Field(
+        True,
+        description="True when the lap completed a full start/finish crossing cycle. "
+                    "False for the initial partial segment (prologue) and the final "
+                    "incomplete segment when recording stops mid-lap.",
+    )
     frames: list[TelemetryFrame] = Field(default_factory=list)
     stats: LapStats | None = None
 

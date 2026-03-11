@@ -12,10 +12,6 @@ from typing import Callable, Optional
 # Auto-stop if no valid telemetry frame arrives within this window (AC probably exited)
 STALE_DATA_TIMEOUT_S: float = 8.0
 
-# A partial lap with fewer frames than this is discarded on session finalise.
-# At 25 Hz, 10 frames = 0.4 s — obviously not a real lap fragment worth keeping.
-MIN_PARTIAL_LAP_FRAMES: int = 10
-
 from simcoach.models.telemetry import Session, Lap, TelemetryFrame
 from simcoach.telemetry_bridge.base import TelemetrySource
 from simcoach.utils.sampling import compute_lap_stats
@@ -25,6 +21,14 @@ class SessionRecorder:
     """
     Polls a TelemetrySource at the configured sample rate, detects lap boundaries,
     and assembles a Session object.  Call record() to run the blocking loop.
+
+    Lap segmentation strategy:
+      - The first segment (recording-start → first S/F crossing) is kept in
+        session data but marked ``complete=False, is_valid=False`` (prologue).
+      - Each subsequent crossing finalises a *completed* lap (``complete=True``).
+      - When recording stops the unfinished current segment is likewise kept
+        but marked ``complete=False, is_valid=False``.
+      - Only laps with ``complete=True`` and a lap time > 30 s are ``is_valid``.
     """
 
     def __init__(
@@ -50,6 +54,10 @@ class SessionRecorder:
 
         # For lap time estimation when shared memory doesn't provide it directly
         self._lap_start_time: float = 0.0
+        self._first_crossing_seen: bool = False
+        # Secondary crossing signal: track the last frame's position so we can
+        # detect a pos wrap (>0.9 → <0.1) even when lap_id hasn't updated yet.
+        self._prev_pos: float | None = None
 
     # ── Public stop API ───────────────────────────────────────────────────────
 
@@ -98,6 +106,8 @@ class SessionRecorder:
         self._fast_mode = fast_mode
         self._stop_requested = False
         self._last_frame_time = 0.0
+        self._first_crossing_seen = False
+        self._prev_pos = None
         last_progress_report = time.time()
 
         print(f"[recorder] Session {session_id} | {self._source.track_id} / {self._source.car_id}")
@@ -154,9 +164,10 @@ class SessionRecorder:
                 self._session.car_id = resolved
 
         print("[recorder] Finalizing laps...")
-        self._flush_current_lap(is_final=True)
+        self._flush_current_lap(complete=False)  # final segment is always incomplete
         valid = sum(1 for l in self._session.laps if l.is_valid)
-        print(f"[recorder] Laps: {len(self._session.laps)} total, {valid} valid "
+        complete = sum(1 for l in self._session.laps if l.complete)
+        print(f"[recorder] Laps: {len(self._session.laps)} total, {complete} complete, {valid} valid "
               f"| Frames: {len(self._session.raw_frames)}")
 
         return self._session
@@ -190,19 +201,65 @@ class SessionRecorder:
     # ── Internal ──────────────────────────────────────────────────────────────
 
     def _process_frame(self, frame: TelemetryFrame) -> None:
+        """Process a single telemetry frame, detecting S/F crossings via two signals:
+
+        1. **lap_id change** (primary): AC's ``completedLaps`` counter incremented.
+           Authoritative but delivered on the *first frame after* the physical crossing,
+           so it can be missed if recording stops in that gap.
+
+        2. **position wrap** (secondary): ``normalized_track_position`` drops from >0.9
+           to <0.1 between consecutive frames.  This fires on the frame that contains the
+           crossing, one frame *before* ``completedLaps`` updates in shared memory.
+
+        Using both signals means a completed lap is preserved even when AC exits or the
+        user stops recording immediately after crossing the line.
+
+        To prevent double-counting when both signals arrive close together (which is the
+        normal case): after a pos-wrap-only crossing we advance ``_current_lap_id`` by 1
+        as a sentinel, so the delayed ``lap_id`` update on the following frame is seen as
+        equal to ``_current_lap_id`` and does not trigger a second flush.
+        """
         assert self._session is not None
 
         self._session.raw_frames.append(frame)
 
-        if frame.lap_id != self._current_lap_id:
-            # Lap boundary detected
-            self._flush_current_lap(is_final=False)
-            self._current_lap_id = frame.lap_id
+        lap_id_changed = frame.lap_id != self._current_lap_id
+        pos_wrap = (
+            self._prev_pos is not None
+            and self._prev_pos > 0.9
+            and frame.normalized_track_position < 0.1
+        )
+
+        if lap_id_changed or pos_wrap:
+            # S/F crossing detected — decide whether this is prologue or a real lap.
+            if not self._first_crossing_seen:
+                self._flush_current_lap(complete=False)   # prologue
+                self._first_crossing_seen = True
+            else:
+                self._flush_current_lap(complete=True)    # completed lap
+
+            if lap_id_changed:
+                # Take AC's authoritative new lap id.
+                self._current_lap_id = frame.lap_id
+            else:
+                # pos_wrap only: AC hasn't incremented lap_id yet.
+                # Advance by 1 as a sentinel so the next frame (when lap_id DOES
+                # update) doesn't look like a second crossing.
+                self._current_lap_id += 1
+
             self._lap_start_time = time.time()
 
+        self._prev_pos = frame.normalized_track_position
         self._current_lap_frames.append(frame)
 
-    def _flush_current_lap(self, is_final: bool) -> None:
+    def _flush_current_lap(self, *, complete: bool) -> None:
+        """Finalise the current lap buffer into a Lap object.
+
+        Args:
+            complete: True when the lap was finalised by a S/F crossing event
+                      (i.e. the car actually completed a full lap cycle).
+                      False for the initial prologue and the final incomplete segment.
+        """
         assert self._session is not None
 
         if not self._current_lap_frames:
@@ -211,22 +268,16 @@ class SessionRecorder:
         frames = self._current_lap_frames
         lap_id = self._current_lap_id
 
-        # Discard trivially short partial laps when stopping.
-        # These are almost always fragments from the out-lap or the moment of Ctrl+C.
-        if is_final and len(frames) < MIN_PARTIAL_LAP_FRAMES:
-            print(f"[recorder] Discarding partial lap {lap_id} "
-                  f"({len(frames)} frames < {MIN_PARTIAL_LAP_FRAMES} minimum)")
-            self._current_lap_frames = []
-            return
-
         # Estimate lap time.
         # In fast_mode wall-clock is meaningless; derive time from frame count.
         if self._fast_mode:
             lap_time_ms = int(len(frames) / self._sample_rate * 1000)
         else:
             lap_time_ms = int((time.time() - self._lap_start_time) * 1000)
-        # Discard obviously invalid laps (out-lap fragments < 30s)
-        is_valid = lap_time_ms > 30_000
+
+        # Only laps that completed a full S/F cycle AND have a reasonable
+        # duration (> 30 s) are considered valid for analysis and PB tracking.
+        is_valid = complete and lap_time_ms > 30_000
 
         stats = compute_lap_stats(frames) if is_valid else None
 
@@ -234,6 +285,7 @@ class SessionRecorder:
             lap_id=lap_id,
             lap_time_ms=lap_time_ms,
             is_valid=is_valid,
+            complete=complete,
             frames=frames,
             stats=stats,
         )
