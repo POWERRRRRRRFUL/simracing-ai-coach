@@ -61,7 +61,7 @@ def init(
         console.print(f"[green]  Created[/green] config.yaml")
 
     # output dirs
-    for d in ["output/sessions", "output/reports", "output/pb_laps"]:
+    for d in ["output/sessions", "output/reports", "output/pb_laps", "output/references"]:
         Path(d).mkdir(parents=True, exist_ok=True)
     console.print(f"[green]  Created[/green] output/ directories")
 
@@ -254,11 +254,21 @@ def analyze(
     # ── Show session summary ─────────────────────────────────────────────────
     _print_session_summary(session)
 
-    # ── Load reference lap (personal best) ───────────────────────────────────
-    ref_mgr = ReferenceManager(pb_dir=cfg.reference.pb_dir)
-    reference_lap = ref_mgr.load_pb(session.car_id, session.track_id)
+    # ── Load reference lap (active selection → PB → legacy) ─────────────────
+    ref_mgr = ReferenceManager(
+        pb_dir=cfg.reference.pb_dir,
+        library_dir=cfg.reference.library_dir,
+        trace_points=cfg.reference.trace_points,
+    )
+    reference_lap = ref_mgr.load_active(session.car_id, session.track_id)
     if reference_lap:
-        console.print(f"  Reference (PB): [blue]{reference_lap.lap_time_str}[/blue]")
+        from simcoach.models.reference import SimcoachReference
+        if isinstance(reference_lap, SimcoachReference):
+            ref_time = reference_lap.metadata.lap_time_ms / 1000.0
+            m, s = int(ref_time // 60), ref_time % 60
+            console.print(f"  Reference: [blue]{m}:{s:06.3f}[/blue] (.simcoachref)")
+        else:
+            console.print(f"  Reference (PB): [blue]{reference_lap.lap_time_str}[/blue]")
     else:
         console.print("  Reference: [dim]none (this session's best lap will be the reference)[/dim]")
 
@@ -320,6 +330,103 @@ def analyze(
     console.print(f"\n[green]Report generated:[/green] {out_path}")
     if not no_browser:
         console.print("[dim]Opening in browser...[/dim]")
+
+
+# ─── export-ref ──────────────────────────────────────────────────────────────
+
+@app.command("export-ref")
+def export_ref(
+    session_file: str = typer.Argument(..., help="Path to session JSON file"),
+    lap: Optional[int] = typer.Option(None, "--lap", "-l", help="Lap number (1-based). Default: best valid lap."),
+    output: Optional[str] = typer.Option(None, "--output", "-o", help="Output .simcoachref file path"),
+    driver_name: str = typer.Option("", "--driver", help="Driver name to embed in metadata"),
+    config: Optional[str] = typer.Option(None, "--config", "-c", help="Path to config.yaml"),
+) -> None:
+    """Export a session lap as a portable .simcoachref reference file."""
+    from simcoach.config import load_config
+    from simcoach.models import Session
+    from simcoach.reference import ReferenceManager
+
+    cfg = load_config(config)
+    path = Path(session_file)
+    if not path.exists():
+        console.print(f"[red]File not found:[/red] {path}")
+        raise typer.Exit(1)
+
+    with open(path, encoding="utf-8") as f:
+        session = Session.model_validate(json.load(f))
+
+    valid_laps = [l for l in session.laps if l.is_valid and l.frames]
+    if not valid_laps:
+        console.print("[red]No valid laps in session.[/red]")
+        raise typer.Exit(1)
+
+    if lap is not None:
+        lap_idx = lap - 1
+        matching = [l for l in valid_laps if l.lap_id == lap_idx]
+        if not matching:
+            console.print(f"[red]Lap {lap} not found or not valid.[/red]")
+            raise typer.Exit(1)
+        selected_lap = matching[0]
+    else:
+        selected_lap = min(valid_laps, key=lambda l: l.lap_time_ms)
+
+    ref_mgr = ReferenceManager(
+        pb_dir=cfg.reference.pb_dir,
+        library_dir=cfg.reference.library_dir,
+        trace_points=cfg.reference.trace_points,
+    )
+    out_path = ref_mgr.export_ref(
+        session, selected_lap,
+        output_path=Path(output) if output else None,
+        source="exported",
+        driver_name=driver_name,
+    )
+    console.print(f"[green]Exported:[/green] {out_path}")
+    console.print(f"  Car: [cyan]{session.car_id}[/cyan]  Track: [cyan]{session.track_id}[/cyan]  Lap time: [green]{selected_lap.lap_time_str}[/green]")
+
+
+# ─── import-ref ──────────────────────────────────────────────────────────────
+
+@app.command("import-ref")
+def import_ref(
+    file: str = typer.Argument(..., help="Path to .simcoachref file"),
+    set_active: bool = typer.Option(False, "--set-active", help="Set as active reference after import"),
+    config: Optional[str] = typer.Option(None, "--config", "-c", help="Path to config.yaml"),
+) -> None:
+    """Import a .simcoachref reference file into the local library."""
+    from simcoach.config import load_config
+    from simcoach.reference import ReferenceManager
+
+    cfg = load_config(config)
+    file_path = Path(file)
+    if not file_path.exists():
+        console.print(f"[red]File not found:[/red] {file_path}")
+        raise typer.Exit(1)
+
+    ref_mgr = ReferenceManager(
+        pb_dir=cfg.reference.pb_dir,
+        library_dir=cfg.reference.library_dir,
+        trace_points=cfg.reference.trace_points,
+    )
+
+    try:
+        ref = ref_mgr.import_ref(file_path)
+    except Exception as e:
+        console.print(f"[red]Import failed:[/red] {e}")
+        raise typer.Exit(1)
+
+    m = ref.metadata
+    time_s = m.lap_time_ms / 1000.0
+    mins, secs = int(time_s // 60), time_s % 60
+    console.print(f"[green]Imported:[/green] {file_path.name}")
+    console.print(f"  Car: [cyan]{m.car_id}[/cyan]  Track: [cyan]{m.track_id}[/cyan]  Lap time: [green]{mins}:{secs:06.3f}[/green]")
+    if m.driver_name:
+        console.print(f"  Driver: [cyan]{m.driver_name}[/cyan]")
+
+    if set_active:
+        ref_mgr.set_active(m.car_id, m.track_id, file_path.name)
+        console.print(f"  [blue]Set as active reference.[/blue]")
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────

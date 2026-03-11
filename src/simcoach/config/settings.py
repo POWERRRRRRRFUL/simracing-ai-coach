@@ -42,6 +42,8 @@ class ReportConfig(BaseModel):
 
 class ReferenceConfig(BaseModel):
     pb_dir: str = "output/pb_laps"
+    library_dir: str = "output/references"
+    trace_points: int = 1000
 
 
 class AppConfig(BaseModel):

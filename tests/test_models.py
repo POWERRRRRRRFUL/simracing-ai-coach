@@ -271,3 +271,234 @@ def test_resample_includes_world_pos_keys():
     result2 = resample_trace(frames_with_pos, n_points=10)
     assert all(p["wx"] is not None for p in result2)
     assert all(p["wz"] is not None for p in result2)
+
+
+# ── SimcoachReference ─────────────────────────────────────────────────────────
+
+def _make_session() -> Session:
+    return Session(
+        session_id="ref_test_01",
+        car_id="ferrari_458_gt2",
+        track_id="ks_nurburgring_sprint",
+        recorded_at="2026-03-09T10:00:00+00:00",
+        source="mock",
+        laps=[_make_lap(0, 118000), _make_lap(1, 116000)],
+    )
+
+
+def test_simcoachref_from_lap():
+    """Create a SimcoachReference from a session lap."""
+    from simcoach.models.reference import SimcoachReference
+
+    session = _make_session()
+    ref = SimcoachReference.from_lap(session, session.laps[1], trace_points=50)
+
+    assert ref.metadata.car_id == "ferrari_458_gt2"
+    assert ref.metadata.track_id == "ks_nurburgring_sprint"
+    assert ref.metadata.lap_time_ms == 116000
+    assert ref.trace.n_points == 50
+    assert len(ref.trace.pos) == 50
+    assert ref.stats is not None
+
+
+def test_simcoachref_roundtrip():
+    """Serialize and deserialize a SimcoachReference."""
+    import json
+    from simcoach.models.reference import SimcoachReference
+
+    session = _make_session()
+    ref = SimcoachReference.from_lap(session, session.laps[0], trace_points=20)
+
+    # Serialize
+    data = ref.model_dump()
+    json_str = json.dumps(data)
+
+    # Deserialize
+    ref2 = SimcoachReference.model_validate(json.loads(json_str))
+    assert ref2.metadata.lap_time_ms == ref.metadata.lap_time_ms
+    assert ref2.trace.n_points == ref.trace.n_points
+    assert len(ref2.trace.spd) == 20
+
+
+def test_simcoachref_to_trace_dicts():
+    """to_trace_dicts() converts columnar back to row-based."""
+    from simcoach.models.reference import SimcoachReference
+
+    session = _make_session()
+    ref = SimcoachReference.from_lap(session, session.laps[0], trace_points=10)
+    dicts = ref.to_trace_dicts()
+
+    assert len(dicts) == 10
+    assert all("pos" in d and "spd" in d and "str" in d for d in dicts)
+    # Verify values match columnar data
+    assert dicts[0]["pos"] == ref.trace.pos[0]
+    assert dicts[0]["spd"] == ref.trace.spd[0]
+
+
+def test_simcoachref_from_reference_lap():
+    """Convert a legacy ReferenceLap to SimcoachReference."""
+    from simcoach.models.reference import SimcoachReference
+    from simcoach.models.telemetry import ReferenceLap
+
+    frames = [_make_frame(i / 99) for i in range(100)]
+    ref_lap = ReferenceLap(
+        source="personal_best",
+        car_id="test_car",
+        track_id="test_track",
+        lap_time_ms=120000,
+        session_id="s001",
+        frames=frames,
+    )
+    ref = SimcoachReference.from_reference_lap(ref_lap, trace_points=25)
+    assert ref.metadata.car_id == "test_car"
+    assert ref.metadata.lap_time_ms == 120000
+    assert ref.trace.n_points == 25
+
+
+def test_export_import_cycle(tmp_path):
+    """Export a lap → import the file → verify data matches."""
+    from simcoach.reference import ReferenceManager
+
+    session = _make_session()
+    mgr = ReferenceManager(
+        pb_dir=str(tmp_path / "pb"),
+        library_dir=str(tmp_path / "lib"),
+        trace_points=50,
+    )
+
+    # Export
+    out = mgr.export_ref(session, session.laps[1], source="exported")
+    assert out.exists()
+    assert out.suffix == ".simcoachref"
+
+    # Import
+    ref = mgr.import_ref(out)
+    assert ref.metadata.car_id == "ferrari_458_gt2"
+    assert ref.metadata.lap_time_ms == 116000
+    assert ref.trace.n_points == 50
+
+
+def test_load_active_resolution(tmp_path):
+    """Test active reference resolution: active.json → pb.simcoachref → pb.json."""
+    from simcoach.reference import ReferenceManager
+
+    session = _make_session()
+    mgr = ReferenceManager(
+        pb_dir=str(tmp_path / "pb"),
+        library_dir=str(tmp_path / "lib"),
+        trace_points=50,
+    )
+
+    # No references at all → None
+    assert mgr.load_active("ferrari_458_gt2", "ks_nurburgring_sprint") is None
+
+    # Save PB (creates both pb.json and pb.simcoachref)
+    mgr.update_pb_if_faster(session, session.laps[1])
+
+    # load_active should find pb.simcoachref
+    from simcoach.models.reference import SimcoachReference
+    active = mgr.load_active("ferrari_458_gt2", "ks_nurburgring_sprint")
+    assert active is not None
+    assert isinstance(active, SimcoachReference)
+    assert active.metadata.lap_time_ms == 116000
+
+
+def test_backward_compat_legacy_pb(tmp_path):
+    """When only legacy pb.json exists, load_active falls back to it."""
+    import json
+    from simcoach.models.telemetry import ReferenceLap
+    from simcoach.reference import ReferenceManager
+    from simcoach.utils.sampling import compute_lap_stats
+
+    mgr = ReferenceManager(
+        pb_dir=str(tmp_path / "pb"),
+        library_dir=str(tmp_path / "lib"),
+        trace_points=50,
+    )
+
+    # Manually create a legacy pb.json (no .simcoachref)
+    frames = [_make_frame(i / 99) for i in range(100)]
+    stats = compute_lap_stats(frames)
+    ref_lap = ReferenceLap(
+        source="personal_best",
+        car_id="test_car",
+        track_id="test_track",
+        lap_time_ms=115000,
+        session_id="legacy_s",
+        frames=frames,
+        stats=stats,
+    )
+    pb_dir = tmp_path / "pb" / "test_car" / "test_track"
+    pb_dir.mkdir(parents=True)
+    with open(pb_dir / "pb.json", "w") as f:
+        json.dump(ref_lap.model_dump(), f)
+
+    # load_active should fall back to legacy pb.json
+    active = mgr.load_active("test_car", "test_track")
+    assert active is not None
+    assert isinstance(active, ReferenceLap)
+    assert active.lap_time_ms == 115000
+
+
+def test_set_active_reference(tmp_path):
+    """Set a specific reference as active and verify load_active picks it up."""
+    from simcoach.models.reference import SimcoachReference
+    from simcoach.reference import ReferenceManager
+
+    session = _make_session()
+    mgr = ReferenceManager(
+        pb_dir=str(tmp_path / "pb"),
+        library_dir=str(tmp_path / "lib"),
+        trace_points=50,
+    )
+
+    # Create PB
+    mgr.update_pb_if_faster(session, session.laps[1])
+
+    # Export a different lap
+    out = mgr.export_ref(session, session.laps[0], source="exported")
+
+    # Set the exported ref as active
+    mgr.set_active("ferrari_458_gt2", "ks_nurburgring_sprint", out.name)
+
+    # load_active should now return the exported ref (118000ms) not the PB (116000ms)
+    active = mgr.load_active("ferrari_458_gt2", "ks_nurburgring_sprint")
+    assert isinstance(active, SimcoachReference)
+    assert active.metadata.lap_time_ms == 118000
+
+
+def test_list_refs(tmp_path):
+    """list_refs returns all .simcoachref files for a car+track."""
+    from simcoach.reference import ReferenceManager
+
+    session = _make_session()
+    mgr = ReferenceManager(
+        pb_dir=str(tmp_path / "pb"),
+        library_dir=str(tmp_path / "lib"),
+        trace_points=50,
+    )
+
+    # Create PB + export
+    mgr.update_pb_if_faster(session, session.laps[1])
+    mgr.export_ref(session, session.laps[0], source="exported")
+
+    refs = mgr.list_refs("ferrari_458_gt2", "ks_nurburgring_sprint")
+    assert len(refs) >= 2
+    names = [r["name"] for r in refs]
+    assert any("pb.simcoachref" in n for n in names)
+
+
+def test_context_builder_with_simcoachref():
+    """ContextBuilder.build() works with a SimcoachReference input."""
+    from simcoach.context_builder import ContextBuilder
+    from simcoach.models.reference import SimcoachReference
+
+    session = _make_session()
+    ref = SimcoachReference.from_lap(session, session.laps[0], trace_points=100)
+
+    builder = ContextBuilder(resample_points=20)
+    context = builder.build(session, reference_lap=ref)
+
+    assert context.reference_lap is not None
+    assert context.reference_lap.is_reference is True
+    assert context.delta_vs_reference_ms is not None

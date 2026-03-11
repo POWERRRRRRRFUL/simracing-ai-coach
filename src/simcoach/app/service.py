@@ -198,8 +198,12 @@ class AppService:
 
         # 1. Reference lap
         _stage("Loading reference lap...")
-        ref_mgr = ReferenceManager(pb_dir=cfg.reference.pb_dir)
-        reference_lap = ref_mgr.load_pb(session.car_id, session.track_id)
+        ref_mgr = ReferenceManager(
+            pb_dir=cfg.reference.pb_dir,
+            library_dir=cfg.reference.library_dir,
+            trace_points=cfg.reference.trace_points,
+        )
+        reference_lap = ref_mgr.load_active(session.car_id, session.track_id)
 
         # 2. Build context
         _stage("Building telemetry context...")
@@ -295,6 +299,46 @@ class AppService:
         self._last_session_path = path
         return session
 
+    # ── Reference management ────────────────────────────────────────────────
+
+    def _ref_mgr(self) -> "ReferenceManager":
+        from simcoach.reference import ReferenceManager
+        cfg = self._config
+        return ReferenceManager(
+            pb_dir=cfg.reference.pb_dir,
+            library_dir=cfg.reference.library_dir,
+            trace_points=cfg.reference.trace_points,
+        )
+
+    def export_reference(
+        self, session: Session, lap_index: int | None = None, output_path: Path | None = None
+    ) -> Path:
+        """Export a session lap as .simcoachref. Returns the output path."""
+        valid_laps = [l for l in session.laps if l.is_valid and l.frames]
+        if not valid_laps:
+            raise ValueError("No valid laps in session.")
+        if lap_index is not None:
+            matching = [l for l in valid_laps if l.lap_id == lap_index]
+            if not matching:
+                raise ValueError(f"Lap {lap_index} not found or not valid.")
+            lap = matching[0]
+        else:
+            lap = min(valid_laps, key=lambda l: l.lap_time_ms)
+        return self._ref_mgr().export_ref(session, lap, output_path=output_path)
+
+    def import_reference(self, file_path: Path) -> "SimcoachReference":
+        """Import a .simcoachref into the library."""
+        from simcoach.models.reference import SimcoachReference
+        return self._ref_mgr().import_ref(file_path)
+
+    def list_references(self, car_id: str, track_id: str) -> list[dict]:
+        """List all .simcoachref files for a car+track."""
+        return self._ref_mgr().list_refs(car_id, track_id)
+
+    def set_active_reference(self, car_id: str, track_id: str, ref_name: str) -> None:
+        """Set the active reference for a car+track."""
+        self._ref_mgr().set_active(car_id, track_id, ref_name)
+
     # ── File utilities ──────────────────────────────────────────────────────
 
     def get_latest_session(self) -> Path | None:
@@ -336,5 +380,5 @@ class AppService:
             shutil.copy(example, self._config_path)
 
         # Ensure output directories exist
-        for d in ("output/sessions", "output/reports", "output/pb_laps"):
+        for d in ("output/sessions", "output/reports", "output/pb_laps", "output/references"):
             Path(d).mkdir(parents=True, exist_ok=True)

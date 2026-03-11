@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from simcoach.models.reference import SimcoachReference
 from simcoach.models.telemetry import (
     Lap,
     LapContextEntry,
@@ -55,14 +56,14 @@ class ContextBuilder:
     def build(
         self,
         session: Session,
-        reference_lap: ReferenceLap | None = None,
+        reference_lap: ReferenceLap | SimcoachReference | None = None,
     ) -> LLMAnalysisContext:
         """
         Build the LLM context from a session.
 
         Args:
             session:       Recorded session with laps and frames.
-            reference_lap: Optional personal-best lap loaded from the PB store.
+            reference_lap: Optional reference (ReferenceLap or SimcoachReference).
 
         Returns:
             LLMAnalysisContext ready to be serialised as JSON for the LLM prompt.
@@ -83,10 +84,9 @@ class ContextBuilder:
         delta_ms: int | None = None
 
         if reference_lap is not None:
-            if reference_lap.stats is None and reference_lap.frames:
-                reference_lap.stats = compute_lap_stats(reference_lap.frames)
+            ref_time_ms = _ref_lap_time_ms(reference_lap)
             ref_entry = self._build_reference_entry(reference_lap)
-            delta_ms = best_lap.lap_time_ms - reference_lap.lap_time_ms
+            delta_ms = best_lap.lap_time_ms - ref_time_ms
 
         all_summaries = self._build_lap_summaries(valid_laps, best_lap.lap_id)
 
@@ -110,7 +110,7 @@ class ContextBuilder:
     def build_chart_traces(
         self,
         session: Session,
-        reference_lap: ReferenceLap | None = None,
+        reference_lap: ReferenceLap | SimcoachReference | None = None,
         chart_points: int = 1000,
     ) -> dict[str, list | None]:
         """
@@ -133,9 +133,8 @@ class ContextBuilder:
         best_trace = resample_trace(best_lap.frames, n) if n > 0 else []
 
         ref_trace: list | None = None
-        if reference_lap is not None and reference_lap.frames:
-            n_ref = min(chart_points, len(reference_lap.frames))
-            ref_trace = resample_trace(reference_lap.frames, n_ref) if n_ref > 0 else []
+        if reference_lap is not None:
+            ref_trace = _get_ref_trace(reference_lap, chart_points)
 
         return {
             "best": best_trace,
@@ -167,7 +166,28 @@ class ContextBuilder:
             trace=trace,
         )
 
-    def _build_reference_entry(self, ref: ReferenceLap) -> LapContextEntry:
+    def _build_reference_entry(
+        self, ref: ReferenceLap | SimcoachReference
+    ) -> LapContextEntry:
+        if isinstance(ref, SimcoachReference):
+            # Already resampled — just subsample if needed for LLM context
+            all_dicts = ref.to_trace_dicts()
+            if len(all_dicts) > self._n_points and self._n_points > 1:
+                step = len(all_dicts) / self._n_points
+                trace = [all_dicts[int(i * step)] for i in range(self._n_points)]
+            else:
+                trace = all_dicts
+            return LapContextEntry(
+                lap_id=-1,
+                lap_time_str=_format_time(ref.metadata.lap_time_ms),
+                is_best=False,
+                is_reference=True,
+                stats=ref.stats,
+                trace=trace,
+            )
+        # Legacy ReferenceLap path
+        if ref.stats is None and ref.frames:
+            ref.stats = compute_lap_stats(ref.frames)
         trace = resample_trace(ref.frames, self._n_points)
         return LapContextEntry(
             lap_id=-1,
@@ -195,3 +215,31 @@ class ContextBuilder:
                 "tc_events": lap.stats.tc_events if lap.stats else None,
             })
         return summaries
+
+
+# ── Module-level helpers ─────────────────────────────────────────────────────
+
+def _ref_lap_time_ms(ref: ReferenceLap | SimcoachReference) -> int:
+    if isinstance(ref, SimcoachReference):
+        return ref.metadata.lap_time_ms
+    return ref.lap_time_ms
+
+
+def _get_ref_trace(
+    ref: ReferenceLap | SimcoachReference, chart_points: int
+) -> list[dict] | None:
+    """Extract high-res trace from either reference type."""
+    if isinstance(ref, SimcoachReference):
+        return ref.to_trace_dicts() if ref.trace.n_points > 0 else None
+    # Legacy ReferenceLap
+    if not ref.frames:
+        return None
+    n_ref = min(chart_points, len(ref.frames))
+    return resample_trace(ref.frames, n_ref) if n_ref > 0 else None
+
+
+def _format_time(lap_time_ms: int) -> str:
+    total_s = lap_time_ms / 1000.0
+    minutes = int(total_s // 60)
+    seconds = total_s % 60
+    return f"{minutes}:{seconds:06.3f}"
