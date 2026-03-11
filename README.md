@@ -223,6 +223,113 @@ The HTML report contains:
 
 ---
 
+## Reference Lap System
+
+### What is a Reference Lap
+
+A reference lap is a portable telemetry trace used as a comparison baseline when analysing your driving. Instead of comparing only against your own personal best, you can also compare against:
+
+- **Personal best** — automatically saved after each session
+- **Imported references** — shared by other drivers or downloaded from the community
+- **Community references** — fast laps shared via Discord, forums, or GitHub
+
+Reference laps are stored in the `.simcoachref` format — a compact, portable JSON file containing a pre-resampled 1000-point telemetry trace, lap metadata, and statistics. The format is designed to be shareable without exposing raw session data.
+
+---
+
+### Export a Reference Lap
+
+Export any lap from a recorded session as a `.simcoachref` file:
+
+```bash
+simcoach export-ref output/sessions/session_<id>_<track>.json
+simcoach export-ref output/sessions/session_<id>_<track>.json --lap 3
+simcoach export-ref output/sessions/session_<id>_<track>.json --output my_best.simcoachref
+simcoach export-ref output/sessions/session_<id>_<track>.json --driver "YourName"
+```
+
+| Option | Description |
+|---|---|
+| `--lap N` | Export lap N (1-based). Default: best valid lap |
+| `--output FILE` | Output path. Default: saved to the reference library |
+| `--driver TEXT` | Driver name embedded in the file metadata |
+
+The exported `.simcoachref` file is self-contained and portable — share it directly with other drivers.
+
+---
+
+### Import a Reference Lap
+
+Import a `.simcoachref` file from another driver into your local library:
+
+```bash
+simcoach import-ref alien_laptime.simcoachref
+simcoach import-ref alien_laptime.simcoachref --set-active
+```
+
+The file is validated before import. Car and track metadata are preserved, and the reference is added to your local library at `output/references/{car_id}/{track_id}/`. Use `--set-active` to immediately use this reference for the next analysis.
+
+---
+
+### Active Reference Selection
+
+When running `simcoach analyze`, the reference used for comparison is resolved in the following order:
+
+1. **Explicitly selected** — a reference set via `active.json` in the library
+2. **Personal best** (`pb.simcoachref`) — automatically maintained after each session
+3. **Legacy personal best** (`pb.json`) — backward-compatible with older sessions
+4. **None** — no reference lap available yet
+
+---
+
+### Local Reference Library
+
+Reference laps are stored in:
+
+```
+output/references/{car_id}/{track_id}/
+```
+
+Example structure:
+
+```
+output/references/
+  ks_porsche_911_gt3/
+    ks_nurburgring_sprint/
+      pb.simcoachref
+      imported_alien.simcoachref
+      active.json
+```
+
+The `active.json` file records which reference is currently selected for comparison.
+
+---
+
+### Sharing Reference Laps
+
+`.simcoachref` files are small (typically 50–100 KB), self-contained, and contain no raw session frames — only the pre-resampled trace and metadata. They are safe to share publicly via:
+
+- Discord racing communities
+- Forum threads
+- GitHub repositories
+- Community lap-time databases
+
+This enables community benchmarking: compare your telemetry directly against a fast reference lap, and let the AI highlight exactly where you lose time.
+
+---
+
+<!--
+Screenshot: Reference comparison
+
+Capture:
+Track Map + Telemetry traces showing user lap vs reference lap.
+
+The map should show both trajectories and the telemetry charts should
+include two traces (user vs reference).
+-->
+
+---
+
 ## Architecture
 
 ```
@@ -499,6 +606,112 @@ HTML 报告包含以下内容：
 | 赛道地图 | 速度渐变着色的 2D 驾驶轨迹，含参考圈叠加和遥测联动 |
 | 遥测轨迹 | 速度、油门、刹车、方向盘最佳圈与参考圈对比 |
 | AI 分析 | 最佳圈解析、会话发现、教练总结、训练重点 |
+
+---
+
+## 参考圈系统
+
+### 什么是参考圈
+
+参考圈是一份可分享的遥测轨迹，用于在分析驾驶时作为对比基准。除了与自己的个人最佳圈对比外，你还可以与以下来源的参考圈进行比较：
+
+- **个人最佳圈** — 每次会话结束后自动保存
+- **导入的参考圈** — 由其他车手分享或从社区下载
+- **社区参考圈** — 通过 Discord、论坛或 GitHub 分享的快圈
+
+参考圈以 `.simcoachref` 格式存储 —— 一种紧凑、可移植的 JSON 文件，包含预采样的 1000 点遥测轨迹、圈次元数据及统计信息。该格式专为公开分享而设计，不包含原始会话帧数据。
+
+---
+
+### 导出参考圈
+
+从已录制的会话中将任意圈次导出为 `.simcoachref` 文件：
+
+```bash
+simcoach export-ref output/sessions/session_<id>_<track>.json
+simcoach export-ref output/sessions/session_<id>_<track>.json --lap 3
+simcoach export-ref output/sessions/session_<id>_<track>.json --output my_best.simcoachref
+simcoach export-ref output/sessions/session_<id>_<track>.json --driver "YourName"
+```
+
+| 参数 | 说明 |
+|---|---|
+| `--lap N` | 导出第 N 圈（从 1 开始）。默认为最快有效圈 |
+| `--output FILE` | 输出路径。默认保存至参考圈库 |
+| `--driver TEXT` | 嵌入文件元数据的车手名称 |
+
+导出的 `.simcoachref` 文件完全自包含、可移植 —— 可直接与其他车手分享。
+
+---
+
+### 导入参考圈
+
+将其他车手的 `.simcoachref` 文件导入到本地参考圈库：
+
+```bash
+simcoach import-ref alien_laptime.simcoachref
+simcoach import-ref alien_laptime.simcoachref --set-active
+```
+
+导入前会对文件进行验证。车辆和赛道元数据将被保留，参考圈将添加至本地库 `output/references/{car_id}/{track_id}/`。使用 `--set-active` 可立即将该参考圈用于下一次分析。
+
+---
+
+### 参考圈的选择逻辑
+
+运行 `simcoach analyze` 时，系统按以下优先级选取用于对比的参考圈：
+
+1. **显式指定** — 通过库目录中的 `active.json` 设置的参考圈
+2. **个人最佳圈**（`pb.simcoachref`）— 每次会话后自动维护
+3. **旧版个人最佳圈**（`pb.json`）— 向后兼容旧版本的会话数据
+4. **无** — 当前暂无参考圈
+
+---
+
+### 本地参考圈库
+
+参考圈存储于：
+
+```
+output/references/{car_id}/{track_id}/
+```
+
+目录结构示例：
+
+```
+output/references/
+  ks_porsche_911_gt3/
+    ks_nurburgring_sprint/
+      pb.simcoachref
+      imported_alien.simcoachref
+      active.json
+```
+
+`active.json` 文件记录当前选中的参考圈。
+
+---
+
+### 分享参考圈
+
+`.simcoachref` 文件体积小（通常 50–100 KB），完全自包含，不包含原始帧数据，仅保留预采样轨迹与元数据，可安全公开分享。分享渠道包括：
+
+- Discord 车手社区
+- 论坛帖子
+- GitHub 仓库
+- 社区圈速数据库
+
+这将实现社区级别的驾驶基准对比：将你的分段遥测与高速参考圈直接比较，让 AI 精准指出你在哪些位置损失了时间。
+
+---
+
+<!--
+Screenshot: 参考圈对比示例
+
+截取内容：
+赛道地图 + 遥测轨迹图，展示用户圈次与参考圈的对比。
+
+赛道地图应显示两条轨迹，遥测图表应包含两条曲线（用户圈 vs 参考圈）。
+-->
 
 ---
 
