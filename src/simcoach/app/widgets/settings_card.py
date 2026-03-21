@@ -113,6 +113,6 @@ class SettingsCard(QFrame):
     def _make_label(text: str) -> QLabel:
         """Small muted field label — no negative margins to avoid clipping."""
         lbl = QLabel(text)
-        lbl.setStyleSheet("font-size: 12px; color: #86868b;")
+        lbl.setStyleSheet("font-size: 12px; color: #7a7f9a;")
         lbl.setWordWrap(True)
         return lbl

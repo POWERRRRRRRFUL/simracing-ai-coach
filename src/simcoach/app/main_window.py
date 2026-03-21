@@ -86,21 +86,28 @@ class MainWindow(QWidget):
 
         title = QLabel("simcoach")
         title.setStyleSheet(
-            "font-size: 22px; font-weight: 700; color: #1d1d1f; letter-spacing: -0.5px;"
+            "font-size: 22px; font-weight: 700; color: #e8eaf0; letter-spacing: -0.3px;"
         )
         header.addWidget(title)
 
         version = QLabel(f"v{__version__}")
-        version.setStyleSheet("font-size: 12px; color: #aeaeb2; padding-top: 8px;")
+        version.setStyleSheet("font-size: 12px; color: #7a7f9a; padding-top: 8px;")
         header.addWidget(version)
         header.addStretch()
 
         layout.addLayout(header)
 
         subtitle = QLabel("AI-powered post-session racing coach for Assetto Corsa")
-        subtitle.setStyleSheet("font-size: 13px; color: #86868b;")
+        subtitle.setStyleSheet("font-size: 13px; color: #7a7f9a;")
         subtitle.setWordWrap(True)
         layout.addWidget(subtitle)
+
+        # Accent separator — mirrors the report's header border-bottom
+        from PySide6.QtWidgets import QFrame as _QFrame
+        sep = _QFrame()
+        sep.setFixedHeight(1)
+        sep.setStyleSheet("background: #2e3250; margin: 2px 0;")
+        layout.addWidget(sep)
 
         # ── Settings card ───────────────────────────────────────────────────
         self._settings = SettingsCard()
@@ -465,7 +472,7 @@ class MainWindow(QWidget):
     @staticmethod
     def _add_card_shadow(widget: QWidget) -> None:
         shadow = QGraphicsDropShadowEffect()
-        shadow.setBlurRadius(20)
-        shadow.setOffset(0, 2)
-        shadow.setColor(QColor(0, 0, 0, 25))
+        shadow.setBlurRadius(16)
+        shadow.setOffset(0, 3)
+        shadow.setColor(QColor(0, 0, 0, 60))
         widget.setGraphicsEffect(shadow)

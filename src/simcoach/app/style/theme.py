@@ -1,31 +1,46 @@
-"""Apple-inspired light theme — color palette and QSS stylesheet."""
+"""Dark theme derived from the HTML report — colour palette and QSS stylesheet.
 
-# ── Colour palette ───────────────────────────────────────────────────────────
+Both the GUI and the HTML report share the same design language:
+  bg       #0f1117   deep dark navy — page/window background
+  surface  #1a1d27   card / panel surface (report --surface)
+  surface2 #22263a   elevated / input surface (report --surface2)
+  accent   #e63946   racing red — matches report accent exactly
+  text     #e8eaf0   primary text (report --text)
+  muted    #7a7f9a   labels / secondary text (report --muted)
+  border   #2e3250   subtle borders (report --border)
+  best     #4ade80   green — success / connected (report --best)
+  ref      #60a5fa   blue — info / reference (report --ref)
+"""
 
-BG_PRIMARY = "#f5f5f7"
-BG_SECONDARY = "#fafafa"
-SURFACE = "#ffffff"
-BORDER = "#e5e5ea"
-BORDER_FOCUS = "#007AFF"
+# ── Colour palette ─────────────────────────────────────────────────────────
 
-TEXT_PRIMARY = "#1d1d1f"
-TEXT_SECONDARY = "#86868b"
-TEXT_PLACEHOLDER = "#aeaeb2"
+BG_PRIMARY   = "#0f1117"
+BG_SECONDARY = "#1a1d27"
+SURFACE      = "#1a1d27"
+SURFACE2     = "#22263a"
+BORDER       = "#2e3250"
+BORDER_FOCUS = "#e63946"
 
-ACCENT = "#007AFF"
-ACCENT_HOVER = "#0056CC"
-ACCENT_PRESSED = "#004099"
-ACCENT_TEXT = "#ffffff"
+TEXT_PRIMARY     = "#e8eaf0"
+TEXT_SECONDARY   = "#7a7f9a"
+TEXT_PLACEHOLDER = "#4a4f68"
 
-SUCCESS = "#34C759"
-SUCCESS_BG = "#e8f8ed"
-WARNING = "#FF9500"
-WARNING_BG = "#fff4e0"
-DANGER = "#FF3B30"
-DANGER_BG = "#fde8e7"
+ACCENT         = "#e63946"
+ACCENT_HOVER   = "#c82833"
+ACCENT_PRESSED = "#a51f28"
+ACCENT_TEXT    = "#ffffff"
+
+SUCCESS    = "#4ade80"
+SUCCESS_BG = "rgba(74, 222, 128, 0.12)"
+WARNING    = "#f59e0b"
+WARNING_BG = "rgba(245, 158, 11, 0.12)"
+DANGER     = "#e63946"
+DANGER_BG  = "rgba(230, 57, 70, 0.12)"
+INFO       = "#60a5fa"
+INFO_BG    = "rgba(96, 165, 250, 0.12)"
 
 FONT_FAMILY = "'Segoe UI', system-ui, sans-serif"
-FONT_MONO = "'Cascadia Code', 'Consolas', monospace"
+FONT_MONO   = "'Cascadia Code', 'Consolas', monospace"
 
 # ── QSS stylesheet ──────────────────────────────────────────────────────────
 
@@ -65,32 +80,34 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
 QFrame[class="card"] {{
     background: {SURFACE};
     border: 1px solid {BORDER};
-    border-radius: 12px;
+    border-radius: 8px;
 }}
 
-/* ── Section labels ─────────────────────────────────────────────────────── */
+/* ── Section labels — uppercase with border-bottom like report ───────────── */
 QLabel[class="section-title"] {{
     font-size: 11px;
-    font-weight: 700;
+    font-weight: 600;
     color: {TEXT_SECONDARY};
-    letter-spacing: 0.5px;
-    padding: 0;
-    margin: 0;
+    letter-spacing: 1px;
+    padding: 0 0 6px 0;
+    border: none;
+    border-bottom: 1px solid {BORDER};
 }}
 
 /* ── Inputs ─────────────────────────────────────────────────────────────── */
 QLineEdit {{
-    background: {SURFACE};
+    background: {SURFACE2};
     border: 1px solid {BORDER};
-    border-radius: 8px;
+    border-radius: 6px;
     padding: 8px 12px;
     font-size: 13px;
+    color: {TEXT_PRIMARY};
     min-height: 18px;
     selection-background-color: {ACCENT};
     selection-color: white;
 }}
 QLineEdit:focus {{
-    border-color: {ACCENT};
+    border-color: {BORDER_FOCUS};
 }}
 QLineEdit:disabled {{
     background: {BG_PRIMARY};
@@ -99,27 +116,29 @@ QLineEdit:disabled {{
 
 /* ── Combo box ──────────────────────────────────────────────────────────── */
 QComboBox {{
-    background: {SURFACE};
+    background: {SURFACE2};
     border: 1px solid {BORDER};
-    border-radius: 8px;
+    border-radius: 6px;
     padding: 8px 12px;
     font-size: 13px;
+    color: {TEXT_PRIMARY};
     min-height: 18px;
 }}
 QComboBox:focus {{
-    border-color: {ACCENT};
+    border-color: {BORDER_FOCUS};
 }}
 QComboBox::drop-down {{
     border: none;
     width: 24px;
 }}
 QComboBox QAbstractItemView {{
-    background: {SURFACE};
+    background: {SURFACE2};
     border: 1px solid {BORDER};
     border-radius: 4px;
     selection-background-color: {ACCENT};
     selection-color: white;
     padding: 4px;
+    color: {TEXT_PRIMARY};
 }}
 
 /* ── Check box ──────────────────────────────────────────────────────────── */
@@ -129,27 +148,28 @@ QCheckBox {{
     color: {TEXT_PRIMARY};
 }}
 QCheckBox::indicator {{
-    width: 18px;
-    height: 18px;
+    width: 16px;
+    height: 16px;
     border-radius: 4px;
     border: 1.5px solid {BORDER};
-    background: {SURFACE};
+    background: {SURFACE2};
 }}
 QCheckBox::indicator:checked {{
     background: {ACCENT};
     border-color: {ACCENT};
 }}
 
-/* ── Primary button ─────────────────────────────────────────────────────── */
+/* ── Primary button — accent fill ───────────────────────────────────────── */
 QPushButton[class="primary"] {{
     background: {ACCENT};
     color: {ACCENT_TEXT};
     border: none;
-    border-radius: 10px;
-    padding: 12px 24px;
-    font-size: 14px;
+    border-radius: 6px;
+    padding: 11px 24px;
+    font-size: 13px;
     font-weight: 600;
-    min-height: 22px;
+    min-height: 20px;
+    letter-spacing: 0.3px;
 }}
 QPushButton[class="primary"]:hover {{
     background: {ACCENT_HOVER};
@@ -158,77 +178,82 @@ QPushButton[class="primary"]:pressed {{
     background: {ACCENT_PRESSED};
 }}
 QPushButton[class="primary"]:disabled {{
-    background: {BORDER};
+    background: {SURFACE2};
     color: {TEXT_SECONDARY};
 }}
 
-/* ── Danger button ──────────────────────────────────────────────────────── */
+/* ── Danger button — outlined, not solid — less aggressive on dark bg ────── */
 QPushButton[class="danger"] {{
-    background: {DANGER};
-    color: white;
-    border: none;
-    border-radius: 10px;
-    padding: 12px 24px;
-    font-size: 14px;
+    background: transparent;
+    color: {DANGER};
+    border: 1.5px solid {DANGER};
+    border-radius: 6px;
+    padding: 10px 24px;
+    font-size: 13px;
     font-weight: 600;
-    min-height: 22px;
+    min-height: 20px;
 }}
 QPushButton[class="danger"]:hover {{
-    background: #E0342D;
+    background: {DANGER_BG};
 }}
 QPushButton[class="danger"]:pressed {{
-    background: #C02D27;
+    background: rgba(230, 57, 70, 0.20);
 }}
 QPushButton[class="danger"]:disabled {{
-    background: {BORDER};
+    background: transparent;
     color: {TEXT_SECONDARY};
+    border-color: {BORDER};
 }}
 
-/* ── Secondary button (outlined) ────────────────────────────────────────── */
+/* ── Secondary button — subtle outlined ─────────────────────────────────── */
 QPushButton[class="secondary"] {{
     background: transparent;
-    color: {ACCENT};
-    border: 1.5px solid {ACCENT};
-    border-radius: 10px;
-    padding: 10px 20px;
+    color: {TEXT_SECONDARY};
+    border: 1px solid {BORDER};
+    border-radius: 6px;
+    padding: 9px 18px;
     font-size: 13px;
     font-weight: 500;
     min-height: 18px;
 }}
 QPushButton[class="secondary"]:hover {{
-    background: rgba(0, 122, 255, 0.06);
+    background: {SURFACE2};
+    color: {TEXT_PRIMARY};
+    border-color: {TEXT_SECONDARY};
 }}
 QPushButton[class="secondary"]:pressed {{
-    background: rgba(0, 122, 255, 0.12);
+    background: {SURFACE2};
+    color: {TEXT_PRIMARY};
 }}
 QPushButton[class="secondary"]:disabled {{
     border-color: {BORDER};
-    color: {TEXT_SECONDARY};
+    color: {TEXT_PLACEHOLDER};
 }}
 
-/* ── Tertiary button (text-only) ────────────────────────────────────────── */
+/* ── Tertiary button — ghost / low emphasis ─────────────────────────────── */
 QPushButton[class="tertiary"] {{
     background: transparent;
-    color: {ACCENT};
+    color: {TEXT_SECONDARY};
     border: none;
-    border-radius: 8px;
+    border-radius: 6px;
     padding: 8px 16px;
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 500;
     min-height: 16px;
 }}
 QPushButton[class="tertiary"]:hover {{
-    background: rgba(0, 122, 255, 0.06);
+    background: {SURFACE2};
+    color: {TEXT_PRIMARY};
 }}
 QPushButton[class="tertiary"]:disabled {{
-    color: {TEXT_SECONDARY};
+    color: {TEXT_PLACEHOLDER};
 }}
 
 /* ── Small icon button (eye toggle, etc.) ───────────────────────────────── */
 QPushButton[class="icon-btn"] {{
     background: transparent;
     border: none;
-    border-radius: 6px;
+    border-radius: 4px;
     padding: 4px 6px;
     font-size: 14px;
     color: {TEXT_SECONDARY};
@@ -238,86 +263,102 @@ QPushButton[class="icon-btn"] {{
     max-height: 28px;
 }}
 QPushButton[class="icon-btn"]:hover {{
-    background: rgba(0, 0, 0, 0.05);
+    background: {SURFACE2};
 }}
 
-/* ── Status pills ───────────────────────────────────────────────────────── */
+/* ── Status pills — subtle tinted backgrounds, coloured text ─────────────
+   Matches the badge / indicator semantics of the HTML report:
+   green = best/connected, red = error/not-running, amber = in-progress  */
 QLabel[class="pill-success"] {{
-    background: {SUCCESS};
-    color: white;
-    border-radius: 10px;
-    padding: 4px 12px;
+    background: {SUCCESS_BG};
+    color: {SUCCESS};
+    border: 1px solid rgba(74, 222, 128, 0.25);
+    border-radius: 4px;
+    padding: 3px 10px;
     font-size: 11px;
     font-weight: 600;
+    letter-spacing: 0.5px;
 }}
 QLabel[class="pill-idle"] {{
-    background: {BORDER};
+    background: transparent;
     color: {TEXT_SECONDARY};
-    border-radius: 10px;
-    padding: 4px 12px;
+    border: 1px solid {BORDER};
+    border-radius: 4px;
+    padding: 3px 10px;
     font-size: 11px;
     font-weight: 500;
+    letter-spacing: 0.5px;
 }}
 QLabel[class="pill-danger"] {{
-    background: {DANGER};
-    color: white;
-    border-radius: 10px;
-    padding: 4px 12px;
+    background: {DANGER_BG};
+    color: {DANGER};
+    border: 1px solid rgba(230, 57, 70, 0.25);
+    border-radius: 4px;
+    padding: 3px 10px;
     font-size: 11px;
     font-weight: 600;
+    letter-spacing: 0.5px;
 }}
 QLabel[class="pill-recording"] {{
-    background: {ACCENT};
-    color: white;
-    border-radius: 10px;
-    padding: 4px 12px;
+    background: {DANGER_BG};
+    color: {ACCENT};
+    border: 1px solid rgba(230, 57, 70, 0.30);
+    border-radius: 4px;
+    padding: 3px 10px;
     font-size: 11px;
     font-weight: 600;
+    letter-spacing: 0.5px;
 }}
 QLabel[class="pill-analyzing"] {{
-    background: {WARNING};
-    color: white;
-    border-radius: 10px;
-    padding: 4px 12px;
+    background: {WARNING_BG};
+    color: {WARNING};
+    border: 1px solid rgba(245, 158, 11, 0.25);
+    border-radius: 4px;
+    padding: 3px 10px;
     font-size: 11px;
     font-weight: 600;
+    letter-spacing: 0.5px;
 }}
 QLabel[class="pill-done"] {{
-    background: {SUCCESS};
-    color: white;
-    border-radius: 10px;
-    padding: 4px 12px;
+    background: {SUCCESS_BG};
+    color: {SUCCESS};
+    border: 1px solid rgba(74, 222, 128, 0.25);
+    border-radius: 4px;
+    padding: 3px 10px;
     font-size: 11px;
     font-weight: 600;
+    letter-spacing: 0.5px;
 }}
 QLabel[class="pill-error"] {{
-    background: {DANGER};
-    color: white;
-    border-radius: 10px;
-    padding: 4px 12px;
+    background: {DANGER_BG};
+    color: {DANGER};
+    border: 1px solid rgba(230, 57, 70, 0.25);
+    border-radius: 4px;
+    padding: 3px 10px;
     font-size: 11px;
     font-weight: 600;
+    letter-spacing: 0.5px;
 }}
 
-/* ── Log panel ──────────────────────────────────────────────────────────── */
+/* ── Log panel — darker than card surface, monospace activity feed ───────── */
 QPlainTextEdit[class="log"] {{
-    background: {SURFACE};
+    background: {BG_PRIMARY};
     border: 1px solid {BORDER};
-    border-radius: 8px;
-    padding: 12px;
+    border-radius: 6px;
+    padding: 10px 14px;
     font-family: {FONT_MONO};
-    font-size: 12px;
-    color: {TEXT_PRIMARY};
+    font-size: 11px;
+    color: {TEXT_SECONDARY};
     selection-background-color: {ACCENT};
     selection-color: white;
 }}
 
 /* ── Tooltip ────────────────────────────────────────────────────────────── */
 QToolTip {{
-    background: {TEXT_PRIMARY};
-    color: white;
-    border: none;
-    border-radius: 6px;
+    background: {SURFACE2};
+    color: {TEXT_PRIMARY};
+    border: 1px solid {BORDER};
+    border-radius: 4px;
     padding: 6px 10px;
     font-size: 12px;
 }}
@@ -335,7 +376,7 @@ QDialog QLabel {{
 QListWidget {{
     background: {SURFACE};
     border: 1px solid {BORDER};
-    border-radius: 8px;
+    border-radius: 6px;
     color: {TEXT_PRIMARY};
     outline: none;
     padding: 4px;
@@ -343,14 +384,14 @@ QListWidget {{
 QListWidget::item {{
     padding: 8px 12px;
     color: {TEXT_PRIMARY};
-    border-radius: 6px;
+    border-radius: 4px;
 }}
 QListWidget::item:selected {{
     background: {ACCENT};
     color: white;
 }}
 QListWidget::item:hover:!selected {{
-    background: rgba(0, 122, 255, 0.08);
+    background: {SURFACE2};
 }}
 
 /* ── Message box ─────────────────────────────────────────────────────────── */
@@ -364,19 +405,21 @@ QMessageBox QLabel {{
 }}
 QMessageBox QPushButton {{
     background: transparent;
-    color: {ACCENT};
-    border: 1.5px solid {ACCENT};
-    border-radius: 8px;
+    color: {TEXT_SECONDARY};
+    border: 1px solid {BORDER};
+    border-radius: 6px;
     padding: 8px 20px;
     font-size: 13px;
     font-weight: 500;
     min-width: 0;
 }}
 QMessageBox QPushButton:hover {{
-    background: rgba(0, 122, 255, 0.06);
+    background: {SURFACE2};
+    color: {TEXT_PRIMARY};
+    border-color: {TEXT_SECONDARY};
 }}
 QMessageBox QPushButton:pressed {{
-    background: rgba(0, 122, 255, 0.12);
+    background: {SURFACE2};
 }}
 QMessageBox QPushButton:default {{
     background: {ACCENT};
