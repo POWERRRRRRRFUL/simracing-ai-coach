@@ -16,16 +16,20 @@ def main() -> None:
 
     app.setStyleSheet(STYLESHEET)
 
-    # Set window icon (if available)
+    # Set window icon — applied to both app-level (Alt-Tab / taskbar)
+    # and window-level (title bar) for consistent display across Windows configs.
     from pathlib import Path
 
     icon_path = Path(__file__).parent / "style" / "icons" / "app.ico"
-    if icon_path.exists():
-        app.setWindowIcon(QIcon(str(icon_path)))
+    app_icon = QIcon(str(icon_path)) if icon_path.exists() else QIcon()
+    if not app_icon.isNull():
+        app.setWindowIcon(app_icon)
 
     from simcoach.app.main_window import MainWindow
 
     window = MainWindow()
+    if not app_icon.isNull():
+        window.setWindowIcon(app_icon)
     window.show()
 
     sys.exit(app.exec())
