@@ -111,7 +111,7 @@ Drive → Record → Analyse → Read report → Drive better
 
 - Python 3.11 or newer
 - Windows 10/11 (required for Assetto Corsa shared memory; demo mode works on any OS)
-- [uv](https://docs.astral.sh/uv/)  or pip
+- One of: [uv](https://docs.astral.sh/uv/) (fastest), pip + venv (standard), or Conda (if you already use Anaconda/Miniconda)
 
 ### Install with uv 
 
@@ -137,6 +137,22 @@ source .venv/bin/activate
 
 pip install -e ".[dev]"
 ```
+
+### Install with Conda
+
+If you already have [Anaconda](https://www.anaconda.com/) or [Miniconda](https://docs.conda.io/en/latest/miniconda.html) installed, use Conda to create the environment and pip to install the package:
+
+```bash
+git clone https://github.com/POWERRRRRRRFUL/simracing-ai-coach.git
+cd simracing-ai-coach
+
+conda create -n simcoach python=3.11 -y
+conda activate simcoach
+
+pip install -e ".[gui]"
+```
+
+This installs both the CLI and the desktop GUI. Python 3.11 or higher is required.
 
 ---
 
@@ -554,7 +570,7 @@ simcoach 录制你的驾驶遥测数据，构建结构化分析上下文，调�
 
 - Python 3.11 或更新版本
 - Windows 10/11（使用 AC 共享内存时必须；演示模式可在任意系统运行）
-- [uv](https://docs.astral.sh/uv/)或 pip
+- 环境管理器三选一：[uv](https://docs.astral.sh/uv/)（最快）、pip + venv（标准）、Conda（已安装 Anaconda/Miniconda 时推荐）
 
 ### 使用 uv 安装
 
@@ -580,6 +596,22 @@ source .venv/bin/activate
 
 pip install -e ".[dev]"
 ```
+
+### 使用 Conda 安装
+
+已安装 [Anaconda](https://www.anaconda.com/) 或 [Miniconda](https://docs.conda.io/en/latest/miniconda.html) 的用户，可用 Conda 创建环境，再用 pip 安装包：
+
+```bash
+git clone https://github.com/POWERRRRRRRFUL/simracing-ai-coach.git
+cd simracing-ai-coach
+
+conda create -n simcoach python=3.11 -y
+conda activate simcoach
+
+pip install -e ".[gui]"
+```
+
+此命令同时安装 CLI 和桌面 GUI。需要 Python 3.11 或更新版本。
 
 ---
 
