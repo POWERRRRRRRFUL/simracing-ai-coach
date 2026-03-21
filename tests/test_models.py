@@ -607,6 +607,292 @@ def test_recorder_crossing_preserved_when_stop_follows_immediately(tmp_path):
     assert tail.is_valid is False
 
 
+def test_recorder_no_extra_segment_with_multiframe_lap_id_lag(tmp_path):
+    """Regression for the extra-segment bug.
+
+    When AC's lap_id update lags behind the physical position-wrap crossing by
+    MORE than 1 frame, the old sentinel (_current_lap_id += 1) caused a spurious
+    lap_id_changed on each intermediate frame, generating extra segments.
+
+    The fix uses _pos_wrap_pending which absorbs the delayed lap_id update
+    regardless of how many frames it takes to arrive.
+    """
+    from simcoach.telemetry_bridge.base import TelemetrySource
+    from simcoach.recorder.session_recorder import SessionRecorder
+
+    def _f(pos: float, lap_id: int) -> TelemetryFrame:
+        return TelemetryFrame(
+            timestamp=1.0, lap_id=lap_id,
+            normalized_track_position=pos,
+            speed_kmh=150, throttle=0.8, brake=0.0,
+            steering=0.0, gear=4, rpm=6000,
+        )
+
+    class _Src(TelemetrySource):
+        def __init__(self, frames):
+            self._it = iter(frames); self._done = False
+        def connect(self): return True
+        def disconnect(self): pass
+        @property
+        def car_id(self): return "test_car"
+        @property
+        def track_id(self): return "test_track"
+        @property
+        def is_session_active(self): return not self._done
+        @property
+        def is_done(self): return self._done
+        def read_frame(self):
+            try: return next(self._it)
+            except StopIteration: self._done = True; return None
+
+    frames = []
+    # Prologue: mid-track, lap_id=0
+    for pos in [0.50, 0.70, 0.95]:
+        frames.append(_f(pos, 0))
+    # First crossing: position wraps BUT lap_id stays 0 for 3 frames (3-frame lag)
+    frames.append(_f(0.02, 0))   # pos_wrap fires here
+    frames.append(_f(0.03, 0))   # intermediate — old sentinel would false-trigger here
+    frames.append(_f(0.04, 0))   # intermediate — old sentinel would false-trigger here
+    frames.append(_f(0.05, 1))   # lap_id finally catches up
+    # Full lap: 40 frames at sample_rate_hz=1 → 40 000 ms > 30 000 → is_valid
+    for i in range(40):
+        pos = round(0.06 + i * (0.89 / 39), 3)
+        frames.append(_f(pos, 1))
+    # Second crossing: 3-frame lag again
+    frames.append(_f(0.01, 1))   # pos_wrap fires
+    frames.append(_f(0.02, 1))   # intermediate
+    frames.append(_f(0.03, 1))   # intermediate
+    # Recording stops before lap_id catches up (worst case)
+
+    src = _Src(frames)
+    src.connect()
+    recorder = SessionRecorder(source=src, sample_rate_hz=1,
+                               output_dir=str(tmp_path / "sessions"))
+    session = recorder.record(fast_mode=True)
+    src.disconnect()
+
+    assert len(session.laps) == 3, (
+        f"Expected 3 laps, got {len(session.laps)}: "
+        f"{[(l.complete, l.is_valid, len(l.frames)) for l in session.laps]}"
+    )
+    assert session.laps[0].complete is False   # prologue
+    assert session.laps[1].complete is True    # completed lap
+    assert session.laps[1].is_valid is True
+    assert session.laps[2].complete is False   # tail
+
+
+def test_recorder_uses_official_ac_lap_time(tmp_path):
+    """iLastTime from the lap_id-change frame overrides iCurrentTime from buffer.
+
+    The crossing frame carries last_lap_time_ms (AC's iLastTime) — the official
+    completed-lap time.  This must be used instead of the approximate
+    current_lap_time_ms from the last pre-crossing frame.
+    """
+    from simcoach.telemetry_bridge.base import TelemetrySource
+    from simcoach.recorder.session_recorder import SessionRecorder
+
+    def _f(pos: float, lap_id: int, lap_ms: int | None = None,
+           last_ms: int | None = None) -> TelemetryFrame:
+        return TelemetryFrame(
+            timestamp=1.0, lap_id=lap_id,
+            normalized_track_position=pos,
+            speed_kmh=150, throttle=0.8, brake=0.0,
+            steering=0.0, gear=4, rpm=6000,
+            current_lap_time_ms=lap_ms,
+            last_lap_time_ms=last_ms,
+        )
+
+    class _Src(TelemetrySource):
+        def __init__(self, frames):
+            self._it = iter(frames); self._done = False
+        def connect(self): return True
+        def disconnect(self): pass
+        @property
+        def car_id(self): return "test_car"
+        @property
+        def track_id(self): return "test_track"
+        @property
+        def is_session_active(self): return not self._done
+        @property
+        def is_done(self): return self._done
+        def read_frame(self):
+            try: return next(self._it)
+            except StopIteration: self._done = True; return None
+
+    APPROXIMATE_MS = 98_900   # what iCurrentTime shows on last pre-crossing frame
+    OFFICIAL_MS = 98_765      # what iLastTime shows on the crossing frame
+
+    frames = []
+    # Prologue: 3 frames
+    for i, pos in enumerate([0.50, 0.70, 0.95]):
+        frames.append(_f(pos, lap_id=0, lap_ms=10_000 + i * 5_000))
+    # First crossing (simultaneous pos_wrap + lap_id change)
+    frames.append(_f(0.01, lap_id=1, lap_ms=200))
+    # Full lap body: iCurrentTime counts up
+    n_body = 40
+    for i in range(n_body):
+        pos = round(0.02 + i * (0.93 / (n_body - 1)), 3)
+        t_ms = 200 + int(i * APPROXIMATE_MS / n_body)
+        frames.append(_f(pos, lap_id=1, lap_ms=t_ms))
+    # Last frame before second crossing: iCurrentTime at approximate value
+    frames.append(_f(0.95, lap_id=1, lap_ms=APPROXIMATE_MS))
+    # Second crossing: iCurrentTime resets, iLastTime carries official time
+    frames.append(_f(0.01, lap_id=2, lap_ms=150, last_ms=OFFICIAL_MS))
+
+    src = _Src(frames)
+    src.connect()
+    recorder = SessionRecorder(source=src, sample_rate_hz=1,
+                               output_dir=str(tmp_path / "sessions"))
+    session = recorder.record(fast_mode=True)
+    src.disconnect()
+
+    assert len(session.laps) == 3
+    completed = session.laps[1]
+    assert completed.complete is True
+    # Must use iLastTime (official), NOT iCurrentTime (approximate)
+    assert completed.lap_time_ms == OFFICIAL_MS, (
+        f"Expected official lap time {OFFICIAL_MS} ms, got {completed.lap_time_ms} ms"
+    )
+    assert completed.is_valid is True
+
+
+def test_recorder_retroactive_timing_after_pos_wrap(tmp_path):
+    """When pos_wrap fires before lap_id change, the lap is flushed with
+    approximate timing.  When lap_id catches up 2 frames later, iLastTime
+    retroactively corrects the official lap time."""
+    from simcoach.telemetry_bridge.base import TelemetrySource
+    from simcoach.recorder.session_recorder import SessionRecorder
+
+    def _f(pos: float, lap_id: int, lap_ms: int | None = None,
+           last_ms: int | None = None) -> TelemetryFrame:
+        return TelemetryFrame(
+            timestamp=1.0, lap_id=lap_id,
+            normalized_track_position=pos,
+            speed_kmh=150, throttle=0.8, brake=0.0,
+            steering=0.0, gear=4, rpm=6000,
+            current_lap_time_ms=lap_ms,
+            last_lap_time_ms=last_ms,
+        )
+
+    class _Src(TelemetrySource):
+        def __init__(self, frames):
+            self._it = iter(frames); self._done = False
+        def connect(self): return True
+        def disconnect(self): pass
+        @property
+        def car_id(self): return "test_car"
+        @property
+        def track_id(self): return "test_track"
+        @property
+        def is_session_active(self): return not self._done
+        @property
+        def is_done(self): return self._done
+        def read_frame(self):
+            try: return next(self._it)
+            except StopIteration: self._done = True; return None
+
+    APPROXIMATE_MS = 53_161   # iCurrentTime on last frame before crossing
+    OFFICIAL_MS = 51_312      # iLastTime on the lap_id change frame
+
+    frames = []
+    # Prologue: simultaneous crossing at start
+    frames.append(_f(0.50, lap_id=0, lap_ms=5_000))
+    frames.append(_f(0.95, lap_id=0, lap_ms=9_000))
+    frames.append(_f(0.01, lap_id=1, lap_ms=100))    # first crossing
+    # Lap body
+    for i in range(20):
+        pos = round(0.02 + i * 0.045, 3)
+        frames.append(_f(pos, lap_id=1, lap_ms=2_000 + i * 2_500))
+    # Last pre-crossing frame
+    frames.append(_f(0.95, lap_id=1, lap_ms=APPROXIMATE_MS))
+    # pos_wrap fires, but lap_id stays 0 → 2-frame lag
+    frames.append(_f(0.02, lap_id=1, lap_ms=APPROXIMATE_MS + 40))  # pos_wrap, no lap_id change
+    frames.append(_f(0.03, lap_id=1, lap_ms=200))                  # intermediate
+    # lap_id catches up with official iLastTime
+    frames.append(_f(0.04, lap_id=2, lap_ms=300, last_ms=OFFICIAL_MS))
+    # Continue driving (new lap body)
+    for i in range(5):
+        frames.append(_f(round(0.05 + i * 0.05, 3), lap_id=2, lap_ms=500 + i * 1_000))
+
+    src = _Src(frames)
+    src.connect()
+    recorder = SessionRecorder(source=src, sample_rate_hz=1,
+                               output_dir=str(tmp_path / "sessions"))
+    session = recorder.record(fast_mode=True)
+    src.disconnect()
+
+    assert len(session.laps) == 3   # prologue + completed + tail
+    completed = session.laps[1]
+    assert completed.complete is True
+    # The retroactive update must have applied iLastTime
+    assert completed.lap_time_ms == OFFICIAL_MS, (
+        f"Expected official {OFFICIAL_MS} ms, got {completed.lap_time_ms} ms"
+    )
+
+
+def test_recorder_falls_back_when_no_last_lap_time(tmp_path):
+    """When last_lap_time_ms is None (mock source), the recorder keeps
+    using current_lap_time_ms from the last buffer frame as the lap time."""
+    from simcoach.telemetry_bridge.base import TelemetrySource
+    from simcoach.recorder.session_recorder import SessionRecorder
+
+    def _f(pos: float, lap_id: int, lap_ms: int | None = None) -> TelemetryFrame:
+        return TelemetryFrame(
+            timestamp=1.0, lap_id=lap_id,
+            normalized_track_position=pos,
+            speed_kmh=150, throttle=0.8, brake=0.0,
+            steering=0.0, gear=4, rpm=6000,
+            current_lap_time_ms=lap_ms,
+            # last_lap_time_ms intentionally omitted (None)
+        )
+
+    class _Src(TelemetrySource):
+        def __init__(self, frames):
+            self._it = iter(frames); self._done = False
+        def connect(self): return True
+        def disconnect(self): pass
+        @property
+        def car_id(self): return "test_car"
+        @property
+        def track_id(self): return "test_track"
+        @property
+        def is_session_active(self): return not self._done
+        @property
+        def is_done(self): return self._done
+        def read_frame(self):
+            try: return next(self._it)
+            except StopIteration: self._done = True; return None
+
+    APPROXIMATE_MS = 98_765
+
+    frames = []
+    # Prologue
+    frames.append(_f(0.50, lap_id=0, lap_ms=5_000))
+    frames.append(_f(0.95, lap_id=0, lap_ms=9_000))
+    frames.append(_f(0.01, lap_id=1, lap_ms=200))
+    # Lap body
+    for i in range(20):
+        pos = round(0.02 + i * 0.045, 3)
+        frames.append(_f(pos, lap_id=1, lap_ms=200 + i * 4_800))
+    frames.append(_f(0.95, lap_id=1, lap_ms=APPROXIMATE_MS))
+    # Crossing — no last_lap_time_ms
+    frames.append(_f(0.01, lap_id=2, lap_ms=150))
+
+    src = _Src(frames)
+    src.connect()
+    recorder = SessionRecorder(source=src, sample_rate_hz=1,
+                               output_dir=str(tmp_path / "sessions"))
+    session = recorder.record(fast_mode=True)
+    src.disconnect()
+
+    completed = session.laps[1]
+    assert completed.complete is True
+    # Falls back to iCurrentTime from last buffer frame
+    assert completed.lap_time_ms == APPROXIMATE_MS, (
+        f"Expected fallback {APPROXIMATE_MS} ms, got {completed.lap_time_ms} ms"
+    )
+
+
 def test_recorder_only_complete_laps_in_analysis(tmp_path):
     """ContextBuilder only counts complete, valid laps in valid_laps."""
     from simcoach.telemetry_bridge.mock_source import MockTelemetrySource

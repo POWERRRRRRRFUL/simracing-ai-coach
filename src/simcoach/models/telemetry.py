@@ -42,6 +42,15 @@ class TelemetryFrame(BaseModel):
     world_pos_y: float | None = Field(None)
     world_pos_z: float | None = Field(None)
 
+    # Official AC lap timer — iCurrentTime from ACGraphics shared memory (ms).
+    # Counts up during the current lap; None for mock frames and old session files.
+    current_lap_time_ms: int | None = Field(None)
+
+    # Official AC completed-lap time — iLastTime from ACGraphics shared memory (ms).
+    # Set by AC when completedLaps increments; this is the exact time AC displays.
+    # None for mock frames and old session files.
+    last_lap_time_ms: int | None = Field(None)
+
     model_config = ConfigDict(extra="ignore")
 
 

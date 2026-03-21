@@ -52,12 +52,16 @@ class SessionRecorder:
         self._current_lap_id: int = -1
         self._last_lap_complete_time: float = 0.0
 
-        # For lap time estimation when shared memory doesn't provide it directly
+        # Lap timing and crossing state
         self._lap_start_time: float = 0.0
         self._first_crossing_seen: bool = False
         # Secondary crossing signal: track the last frame's position so we can
         # detect a pos wrap (>0.9 → <0.1) even when lap_id hasn't updated yet.
         self._prev_pos: float | None = None
+        # True after a pos_wrap-only crossing; cleared when lap_id finally catches up.
+        # Prevents the delayed lap_id update (which may arrive 1-N frames later) from
+        # being mistaken for a new crossing and generating a spurious extra segment.
+        self._pos_wrap_pending: bool = False
 
     # ── Public stop API ───────────────────────────────────────────────────────
 
@@ -108,6 +112,7 @@ class SessionRecorder:
         self._last_frame_time = 0.0
         self._first_crossing_seen = False
         self._prev_pos = None
+        self._pos_wrap_pending = False
         last_progress_report = time.time()
 
         print(f"[recorder] Session {session_id} | {self._source.track_id} / {self._source.car_id}")
@@ -208,16 +213,17 @@ class SessionRecorder:
            so it can be missed if recording stops in that gap.
 
         2. **position wrap** (secondary): ``normalized_track_position`` drops from >0.9
-           to <0.1 between consecutive frames.  This fires on the frame that contains the
-           crossing, one frame *before* ``completedLaps`` updates in shared memory.
+           to <0.1 between consecutive frames.  This fires on the crossing frame itself,
+           one or more frames *before* ``completedLaps`` updates in shared memory.
 
         Using both signals means a completed lap is preserved even when AC exits or the
         user stops recording immediately after crossing the line.
 
-        To prevent double-counting when both signals arrive close together (which is the
-        normal case): after a pos-wrap-only crossing we advance ``_current_lap_id`` by 1
-        as a sentinel, so the delayed ``lap_id`` update on the following frame is seen as
-        equal to ``_current_lap_id`` and does not trigger a second flush.
+        Double-flush prevention: after a pos_wrap-only crossing, ``_pos_wrap_pending``
+        is set to True.  Any subsequent ``lap_id_changed`` while that flag is set is
+        treated as the delayed AC counter update — it syncs ``_current_lap_id`` but does
+        NOT trigger another flush.  This correctly handles variable-length lags (1-N
+        frames) between the physical crossing and the AC memory update.
         """
         assert self._session is not None
 
@@ -230,8 +236,15 @@ class SessionRecorder:
             and frame.normalized_track_position < 0.1
         )
 
+        # If lap_id is catching up after a pos_wrap crossing, just sync — don't re-flush.
+        if lap_id_changed and self._pos_wrap_pending:
+            self._current_lap_id = frame.lap_id
+            self._pos_wrap_pending = False
+            self._apply_official_lap_time(frame)  # retroactive: iLastTime → completed lap
+            lap_id_changed = False   # consume the update; not a new crossing
+
         if lap_id_changed or pos_wrap:
-            # S/F crossing detected — decide whether this is prologue or a real lap.
+            # Genuine S/F crossing — flush the accumulated buffer.
             if not self._first_crossing_seen:
                 self._flush_current_lap(complete=False)   # prologue
                 self._first_crossing_seen = True
@@ -239,13 +252,12 @@ class SessionRecorder:
                 self._flush_current_lap(complete=True)    # completed lap
 
             if lap_id_changed:
-                # Take AC's authoritative new lap id.
                 self._current_lap_id = frame.lap_id
+                self._apply_official_lap_time(frame)  # iLastTime → completed lap
             else:
-                # pos_wrap only: AC hasn't incremented lap_id yet.
-                # Advance by 1 as a sentinel so the next frame (when lap_id DOES
-                # update) doesn't look like a second crossing.
-                self._current_lap_id += 1
+                # pos_wrap only: don't change _current_lap_id yet — wait for AC
+                # to confirm with its official lap counter update.
+                self._pos_wrap_pending = True
 
             self._lap_start_time = time.time()
 
@@ -268,9 +280,18 @@ class SessionRecorder:
         frames = self._current_lap_frames
         lap_id = self._current_lap_id
 
-        # Estimate lap time.
-        # In fast_mode wall-clock is meaningless; derive time from frame count.
-        if self._fast_mode:
+        # ── Lap time ──────────────────────────────────────────────────────────
+        # Initial estimate (may be overwritten by _apply_official_lap_time):
+        #   1. frames[-1].current_lap_time_ms (iCurrentTime — approximate)
+        #   2. Frame-count estimate (fast_mode / mock)
+        #   3. Wall-clock fallback
+        #
+        # For completed laps, _apply_official_lap_time() overwrites with
+        # iLastTime (official AC timing) when a lap_id change is detected.
+        official_ms = frames[-1].current_lap_time_ms if frames else None
+        if official_ms is not None and official_ms > 0:
+            lap_time_ms = official_ms
+        elif self._fast_mode:
             lap_time_ms = int(len(frames) / self._sample_rate * 1000)
         else:
             lap_time_ms = int((time.time() - self._lap_start_time) * 1000)
@@ -295,3 +316,25 @@ class SessionRecorder:
             self._on_lap_complete(lap)
 
         self._current_lap_frames = []
+
+    def _apply_official_lap_time(self, frame: TelemetryFrame) -> None:
+        """Retroactively apply the official AC lap time (``iLastTime``) to the
+        most recently completed lap.
+
+        Called when ``lap_id_changed`` is detected — the triggering frame's
+        ``last_lap_time_ms`` contains AC's official completed-lap time.
+        This overwrites the approximate timing set during flush and
+        recalculates ``is_valid`` accordingly.
+
+        No-op when ``last_lap_time_ms`` is None (mock source) or <= 0.
+        """
+        if not self._session or not self._session.laps:
+            return
+        official_ms = frame.last_lap_time_ms
+        if official_ms is None or official_ms <= 0:
+            return
+        for lap in reversed(self._session.laps):
+            if lap.complete:
+                lap.lap_time_ms = official_ms
+                lap.is_valid = official_ms > 30_000
+                break

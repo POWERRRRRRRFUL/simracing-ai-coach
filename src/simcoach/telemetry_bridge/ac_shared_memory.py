@@ -317,6 +317,8 @@ class ACSharedMemorySource(TelemetrySource):
                 world_pos_x=float(gfx.carCoordinates[0]),
                 world_pos_y=float(gfx.carCoordinates[1]),
                 world_pos_z=float(gfx.carCoordinates[2]),
+                current_lap_time_ms=int(gfx.iCurrentTime),
+                last_lap_time_ms=int(gfx.iLastTime),
             )
 
         except Exception:
