@@ -16,6 +16,7 @@ env/
 # OS
 .DS_Store
 Thumbs.db
+Desktop.ini
 
 # Environment / credentials
 .env
@@ -24,20 +25,25 @@ Thumbs.db
 # Copy configs/config.example.yaml → config.yaml to get started
 config.yaml
 
-# Output data
+# Output data (sessions, reports, PB laps, references)
 output/
 
 # Logs
 *.log
 
-# pytest
+# pytest / mypy
 .pytest_cache/
+.mypy_cache/
 
-# build
+# Build / packaging
 dist/
 build/
 *.egg-info/
 
-# coverage
+# PyInstaller (the tracked simcoach_app.spec is explicitly committed)
+*.manifest
+*.pem
+
+# Coverage
 .coverage
 htmlcov/

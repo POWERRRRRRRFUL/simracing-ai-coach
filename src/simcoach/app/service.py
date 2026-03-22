@@ -234,9 +234,10 @@ class AppService:
             system_prompt = build_system_prompt()
             user_prompt = build_user_prompt(context_json)
             with LLMProvider(cfg.llm) as provider:
-                llm_response = provider.complete(
+                llm_result = provider.complete(
                     system_prompt, user_prompt, json_mode=True
                 )
+                llm_response = llm_result.final_text
             had_llm = True
         else:
             _stage("No API key — generating placeholder report...")

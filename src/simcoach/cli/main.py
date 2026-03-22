@@ -317,7 +317,8 @@ def analyze(
         task = progress.add_task("Waiting for AI analysis...", total=None)
         try:
             with LLMProvider(cfg.llm) as provider:
-                llm_response = provider.complete(system_prompt, user_prompt, json_mode=True)
+                llm_result = provider.complete(system_prompt, user_prompt, json_mode=True)
+                llm_response = llm_result.final_text
         except Exception as e:
             console.print(f"\n[red]LLM call failed:[/red] {e}")
             raise typer.Exit(1)
