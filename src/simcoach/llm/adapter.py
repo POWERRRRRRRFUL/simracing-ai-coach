@@ -41,6 +41,17 @@ def extract_response(
     finish_reason = ""
     usage = data.get("usage", {}) or {}
 
+    # Log usage details for diagnostics (fires on every response).
+    _completion_details = usage.get("completion_tokens_details") or {}
+    log.debug(
+        "LLM response diagnostics: model=%s, finish_reason=%s, "
+        "completion_tokens=%s, reasoning_tokens=%s",
+        model,
+        data.get("choices", [{}])[0].get("finish_reason", "") if data.get("choices") else "",
+        usage.get("completion_tokens", 0),
+        _completion_details.get("reasoning_tokens", 0),
+    )
+
     # ── choices-based extraction (OpenAI / DeepSeek / most providers) ─────
     choices = data.get("choices")
     if choices and isinstance(choices, list) and len(choices) > 0:
@@ -50,6 +61,12 @@ def extract_response(
 
         content = message.get("content")
         reasoning = message.get("reasoning_content")
+        reasoning_source = "reasoning_content"
+
+        # Anthropic thinking models via proxy may use a "thinking" field.
+        if reasoning is None:
+            reasoning = message.get("thinking")
+            reasoning_source = "thinking"
 
         content_text = _extract_text(content)
         reasoning_text = _extract_text(reasoning) if reasoning is not None else None
@@ -60,7 +77,7 @@ def extract_response(
             source_field = "content"
         elif reasoning_text:
             final_text = reasoning_text
-            source_field = "reasoning_content"
+            source_field = reasoning_source
         else:
             # Try message.text as variant
             text_field = message.get("text")
@@ -115,6 +132,20 @@ def extract_response(
             finish_reason=finish_reason,
             usage=usage,
         )
+
+    # ── Reasoning-budget exhaustion detection ─────────────────────────────
+    if finish_reason == "length":
+        completion_details = usage.get("completion_tokens_details") or {}
+        reasoning_tokens = completion_details.get("reasoning_tokens", 0)
+        completion_tokens = usage.get("completion_tokens", 0)
+
+        if reasoning_tokens and reasoning_tokens >= completion_tokens:
+            raise ValueError(
+                f"Model '{model}' used the entire completion budget "
+                f"({completion_tokens} tokens) on reasoning and produced "
+                f"no final answer. Try increasing max_completion_tokens or "
+                f"use a lighter model."
+            )
 
     # ── Nothing found ─────────────────────────────────────────────────────
     snippet = json.dumps(data, default=str)[:500]

@@ -182,6 +182,96 @@ class TestExtractResponse:
         with pytest.raises(ValueError, match="Cannot extract text"):
             extract_response(data)
 
+    def test_claude_thinking_field_fallback(self):
+        """Claude think via proxy: empty content, thinking field present."""
+        data = {
+            "model": "claude-3-5-sonnet-think",
+            "choices": [
+                {
+                    "message": {
+                        "content": "",
+                        "thinking": "Step 1: analyze braking...\nStep 2: ...",
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+        result = extract_response(data)
+        assert result.final_text == "Step 1: analyze braking...\nStep 2: ..."
+        assert result.source_field == "thinking"
+
+    def test_claude_thinking_with_content(self):
+        """Claude think: both thinking and content present, content wins."""
+        data = {
+            "model": "claude-3-5-sonnet-think",
+            "choices": [
+                {
+                    "message": {
+                        "content": '{"best_lap_vs_reference": {}}',
+                        "thinking": "Let me analyze the telemetry...",
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+        result = extract_response(data)
+        assert result.final_text == '{"best_lap_vs_reference": {}}'
+        assert result.source_field == "content"
+        assert result.reasoning_text == "Let me analyze the telemetry..."
+
+    def test_claude_thinking_content_blocks_with_thinking_type(self):
+        """Claude via proxy: content is list with thinking + text blocks."""
+        data = {
+            "model": "claude-3-5-sonnet-think",
+            "choices": [
+                {
+                    "message": {
+                        "content": [
+                            {"type": "thinking", "thinking": "internal reasoning..."},
+                            {"type": "text", "text": '{"best_lap_vs_reference": {}}'},
+                        ],
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+        result = extract_response(data)
+        assert result.final_text == '{"best_lap_vs_reference": {}}'
+        assert result.source_field == "content"
+
+    def test_reasoning_budget_exhaustion(self):
+        """finish_reason=length + all tokens are reasoning = clear error."""
+        data = {
+            "model": "gpt-5.4-pro",
+            "choices": [
+                {
+                    "message": {"content": ""},
+                    "finish_reason": "length",
+                }
+            ],
+            "usage": {
+                "completion_tokens": 2048,
+                "completion_tokens_details": {"reasoning_tokens": 2048},
+            },
+        }
+        with pytest.raises(ValueError, match="entire completion budget.*reasoning"):
+            extract_response(data)
+
+    def test_length_finish_without_reasoning_gives_generic_error(self):
+        """finish_reason=length but no reasoning tokens — generic error."""
+        data = {
+            "model": "gpt-4o",
+            "choices": [
+                {
+                    "message": {"content": ""},
+                    "finish_reason": "length",
+                }
+            ],
+            "usage": {"completion_tokens": 2048},
+        }
+        with pytest.raises(ValueError, match="Cannot extract text"):
+            extract_response(data)
+
     def test_no_choices_no_text_raises(self):
         data = {"model": "test", "usage": {"total_tokens": 100}}
         with pytest.raises(ValueError, match="Cannot extract text"):

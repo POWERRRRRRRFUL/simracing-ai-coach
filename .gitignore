@@ -39,6 +39,9 @@ output/
 dist/
 build/
 *.egg-info/
+*.egg
+*.whl
+*.tar.gz
 
 # PyInstaller (the tracked simcoach_app.spec is explicitly committed)
 *.manifest
@@ -47,3 +50,6 @@ build/
 # Coverage
 .coverage
 htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/

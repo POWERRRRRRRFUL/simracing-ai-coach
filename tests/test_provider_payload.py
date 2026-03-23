@@ -9,7 +9,11 @@ import httpx
 import pytest
 
 from simcoach.config.settings import LLMConfig
-from simcoach.llm.providers.openai_compatible import OpenAICompatibleProvider
+from simcoach.llm.providers.openai_compatible import (
+    ModelCapabilities,
+    OpenAICompatibleProvider,
+    _get_model_capabilities,
+)
 
 
 def _make_provider(model: str = "gpt-4o-mini", **kwargs) -> OpenAICompatibleProvider:
@@ -40,33 +44,69 @@ def _capture_payload(provider: OpenAICompatibleProvider, json_mode: bool = False
         return call_kwargs["json"]
 
 
-# ── Reasoning model detection ────────────────────────────────────────────────
+# ── Model capability detection ───────────────────────────────────────────────
 
 
-class TestReasoningModelDetection:
+class TestModelCapabilityDetection:
     def test_deepseek_reasoner(self):
-        p = _make_provider("deepseek-reasoner")
-        assert p._is_reasoning_model() is True
+        caps = _get_model_capabilities("deepseek-reasoner")
+        assert caps.is_reasoning is True
+        assert caps.supports_temperature is False
+        assert caps.supports_max_tokens is False
+        assert caps.supports_max_completion_tokens is True
+        assert caps.supports_response_format is False
 
     def test_claude_think(self):
-        p = _make_provider("claude-3-5-sonnet-think")
-        assert p._is_reasoning_model() is True
+        caps = _get_model_capabilities("claude-3-5-sonnet-think")
+        assert caps.is_reasoning is True
+        assert caps.supports_temperature is False
 
     def test_thinking_variant(self):
-        p = _make_provider("some-model-thinking-v2")
-        assert p._is_reasoning_model() is True
+        caps = _get_model_capabilities("some-model-thinking-v2")
+        assert caps.is_reasoning is True
+
+    def test_gpt54(self):
+        caps = _get_model_capabilities("gpt-5.4")
+        assert caps.is_reasoning is False
+        assert caps.supports_temperature is False
+        assert caps.supports_max_tokens is False
+        assert caps.supports_max_completion_tokens is True
+        assert caps.supports_response_format is False
+
+    def test_gpt54_mini(self):
+        caps = _get_model_capabilities("gpt-5.4-mini")
+        assert caps.is_reasoning is False
+        assert caps.supports_temperature is False
+        assert caps.supports_max_completion_tokens is True
+
+    def test_gpt54_pro_is_heavy(self):
+        caps = _get_model_capabilities("gpt-5.4-pro")
+        assert caps.is_reasoning is False
+        assert caps.supports_temperature is False
+        assert caps.min_max_tokens == 16384
+
+    def test_gpt54_high(self):
+        caps = _get_model_capabilities("gpt-5.4-high")
+        assert caps.is_reasoning is False
+        assert caps.supports_temperature is False
+        assert caps.min_max_tokens == 16384
+
+    def test_gpt54_nano_is_standard(self):
+        caps = _get_model_capabilities("gpt-5.4-nano")
+        assert caps.min_max_tokens == 0
 
     def test_normal_deepseek_chat(self):
-        p = _make_provider("deepseek-chat")
-        assert p._is_reasoning_model() is False
+        caps = _get_model_capabilities("deepseek-chat")
+        assert caps == ModelCapabilities()
+        assert caps.is_reasoning is False
 
     def test_normal_gpt4o(self):
-        p = _make_provider("gpt-4o-mini")
-        assert p._is_reasoning_model() is False
+        caps = _get_model_capabilities("gpt-4o-mini")
+        assert caps == ModelCapabilities()
 
     def test_normal_claude(self):
-        p = _make_provider("claude-3-5-sonnet")
-        assert p._is_reasoning_model() is False
+        caps = _get_model_capabilities("claude-3-5-sonnet")
+        assert caps == ModelCapabilities()
 
 
 # ── Normal model payload ─────────────────────────────────────────────────────
@@ -122,6 +162,112 @@ class TestReasoningModelPayload:
         assert len(payload["messages"]) == 2
         assert payload["messages"][0]["role"] == "system"
         assert payload["messages"][1]["role"] == "user"
+
+
+# ── GPT-5.4 model payload ────────────────────────────────────────────────────
+
+
+class TestGPT54Payload:
+    def test_no_temperature(self):
+        p = _make_provider("gpt-5.4-mini")
+        payload = _capture_payload(p)
+        assert "temperature" not in payload
+
+    def test_uses_max_completion_tokens(self):
+        p = _make_provider("gpt-5.4")
+        payload = _capture_payload(p)
+        assert payload["max_completion_tokens"] == 2048
+        assert "max_tokens" not in payload
+
+    def test_no_response_format_even_with_json_mode(self):
+        p = _make_provider("gpt-5.4-pro")
+        payload = _capture_payload(p, json_mode=True)
+        assert "response_format" not in payload
+
+    def test_messages_present(self):
+        p = _make_provider("gpt-5.4-mini")
+        payload = _capture_payload(p)
+        assert len(payload["messages"]) == 2
+        assert payload["messages"][0]["role"] == "system"
+
+
+# ── Token floor ──────────────────────────────────────────────────────────────
+
+
+class TestTokenFloor:
+    def test_heavy_model_raises_token_limit(self):
+        p = _make_provider("gpt-5.4-high")  # default max_tokens=2048
+        payload = _capture_payload(p)
+        assert payload["max_completion_tokens"] == 16384
+
+    def test_user_override_above_floor(self):
+        config = LLMConfig(
+            model="gpt-5.4-high",
+            api_key="test-key",
+            base_url="https://api.example.com/v1",
+            max_tokens=32000,
+            temperature=0.3,
+        )
+        p = OpenAICompatibleProvider(config)
+        payload = _capture_payload(p)
+        assert payload["max_completion_tokens"] == 32000
+
+    def test_normal_model_unaffected(self):
+        p = _make_provider("gpt-4o-mini")
+        payload = _capture_payload(p)
+        assert payload["max_tokens"] == 2048
+
+    def test_standard_gpt54_unaffected(self):
+        p = _make_provider("gpt-5.4-mini")
+        payload = _capture_payload(p)
+        assert payload["max_completion_tokens"] == 2048
+
+
+# ── Transport retry ─────────────────────────────────────────────────────────
+
+
+class TestTransportRetry:
+    def test_retries_on_transport_error(self):
+        p = _make_provider("deepseek-chat")
+        mock_ok = MagicMock()
+        mock_ok.json.return_value = {
+            "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
+            "model": "deepseek-chat",
+        }
+        mock_ok.raise_for_status = MagicMock()
+
+        with patch.object(
+            p._client,
+            "post",
+            side_effect=[httpx.ReadError("SSL: UNEXPECTED_EOF"), mock_ok],
+        ):
+            with patch("simcoach.llm.providers.openai_compatible.time.sleep"):
+                result = p.raw_complete("system", "user")
+        assert result["choices"][0]["message"]["content"] == "ok"
+
+    def test_does_not_retry_http_status_error(self):
+        p = _make_provider("deepseek-chat")
+        mock_response = httpx.Response(
+            status_code=400,
+            request=httpx.Request(
+                "POST", "https://api.example.com/v1/chat/completions"
+            ),
+            text='{"error": "bad request"}',
+        )
+        with patch.object(p._client, "post", return_value=mock_response):
+            with pytest.raises(httpx.HTTPStatusError):
+                p.raw_complete("system", "user")
+
+    def test_raises_after_max_retries(self):
+        p = _make_provider("deepseek-chat")
+        with patch.object(
+            p._client,
+            "post",
+            side_effect=httpx.ReadError("SSL: UNEXPECTED_EOF"),
+        ):
+            with patch("simcoach.llm.providers.openai_compatible.time.sleep"):
+                with pytest.raises(httpx.ReadError):
+                    p.raw_complete("system", "user")
 
 
 # ── Error logging ────────────────────────────────────────────────────────────
