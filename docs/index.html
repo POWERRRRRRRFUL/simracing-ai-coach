@@ -211,18 +211,13 @@
     .showcase-item:hover {
       border-color: var(--text-placeholder);
     }
-    .showcase-placeholder {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 400px;
-      color: var(--text-placeholder);
-      font-size: 14px;
-      font-family: var(--font-mono);
-    }
     .showcase-item img {
       width: 100%;
-      border-radius: 0;
+      max-width: 900px;
+      margin: 0 auto;
+      border-radius: 8px 8px 0 0;
+      display: block;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
     }
     .showcase-caption {
       padding: 16px 20px;
@@ -425,7 +420,7 @@
       <h1>simcoach</h1>
       <p>AI-powered post-session racing coach for Assetto Corsa. Record telemetry, compare laps, and get actionable coaching&nbsp;&mdash;&nbsp;all locally.</p>
       <div class="hero-actions">
-        <a href="#RELEASE_LINK" class="btn btn-primary">
+        <a href="https://github.com/POWERRRRRRRFUL/simracing-ai-coach/releases/latest" class="btn btn-primary">
           <!-- Windows icon -->
           <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M3 12V6.75l8-1.25V12H3zm0 .5h8v6.5l-8-1.25V12.5zM11.5 5.4l9.5-1.4v8h-9.5V5.4zm0 7.1h9.5v8l-9.5-1.4v-6.6z"/></svg>
           Download for Windows
@@ -447,14 +442,12 @@
       <div class="showcase-grid">
 
         <div class="showcase-item">
-          <img src="images/desktop_gui.png" alt="simcoach desktop interface">
-          <div class="showcase-placeholder">[ GUI screenshot &mdash; images/desktop_gui.png ]</div>
+          <img src="images/desktop_gui.png" alt="simcoach desktop GUI">
           <div class="showcase-caption">Desktop interface &mdash; configure your session, connect to Assetto Corsa, and start recording.</div>
         </div>
 
         <div class="showcase-item">
           <img src="images/track_map_linked.gif" alt="interactive report demo">
-          <div class="showcase-placeholder">[ Report screenshot &mdash; images/full_report.png ]</div>
           <div class="showcase-caption">AI-generated coaching report with interactive telemetry charts and track map.</div>
         </div>
 
@@ -582,7 +575,7 @@
     <div class="container">
       <h2 class="section-title">Ready to get faster?</h2>
       <p class="section-desc">Download simcoach, connect your favorite LLM, and start improving your lap times today.</p>
-      <a href="#RELEASE_LINK" class="btn btn-primary">
+      <a href="https://github.com/POWERRRRRRRFUL/simracing-ai-coach/releases/latest" class="btn btn-primary">
         <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M3 12V6.75l8-1.25V12H3zm0 .5h8v6.5l-8-1.25V12.5zM11.5 5.4l9.5-1.4v8h-9.5V5.4zm0 7.1h9.5v8l-9.5-1.4v-6.6z"/></svg>
         Download for Windows
       </a>
