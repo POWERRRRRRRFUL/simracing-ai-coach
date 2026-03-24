@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>simcoach — AI Racing Coach for Assetto Corsa</title>
+  <meta name="description" content="AI-powered post-session racing coach for Assetto Corsa. Record telemetry, analyze laps, and get actionable coaching — all locally on Windows.">
+  <style>
+    /* ── Reset ── */
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    /* ── Tokens (from app theme.py) ── */
+    :root {
+      --bg-primary:    #0f1117;
+      --bg-secondary:  #1a1d27;
+      --surface:       #1a1d27;
+      --surface2:      #22263a;
+      --accent:        #e63946;
+      --accent-hover:  #c82833;
+      --accent-pressed:#a51f28;
+      --border:        #2e3250;
+      --text-primary:  #e8eaf0;
+      --text-secondary:#7a7f9a;
+      --text-placeholder:#4a4f68;
+      --success:       #4ade80;
+      --info:          #60a5fa;
+      --font-sans:     'Segoe UI', system-ui, -apple-system, sans-serif;
+      --font-mono:     'Cascadia Code', 'Consolas', monospace;
+      --max-w:         960px;
+      --section-gap:   120px;
+    }
+
+    /* ── Base ── */
+    html { scroll-behavior: smooth; }
+    body {
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      font-size: 16px;
+      line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { color: var(--accent-hover); }
+    img { max-width: 100%; height: auto; display: block; }
+
+    /* ── Layout ── */
+    .container {
+      max-width: var(--max-w);
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+    section {
+      padding: var(--section-gap) 0;
+    }
+
+    /* ── Nav ── */
+    nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 100;
+      background: rgba(15, 17, 23, 0.85);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+    nav .container {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 56px;
+    }
+    .nav-logo {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--text-primary);
+    }
+    .nav-links { display: flex; gap: 28px; }
+    .nav-links a {
+      font-size: 14px;
+      color: var(--text-secondary);
+      transition: color 0.2s;
+    }
+    .nav-links a:hover { color: var(--text-primary); }
+
+    /* ── Hero ── */
+    .hero {
+      padding-top: 180px;
+      padding-bottom: var(--section-gap);
+      text-align: center;
+    }
+    .hero-badge {
+      display: inline-block;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--accent);
+      border: 1px solid rgba(230, 57, 70, 0.3);
+      border-radius: 20px;
+      padding: 6px 16px;
+      margin-bottom: 28px;
+    }
+    .hero h1 {
+      font-size: clamp(48px, 8vw, 80px);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      line-height: 1.05;
+      margin-bottom: 20px;
+    }
+    .hero p {
+      font-size: clamp(18px, 2.5vw, 22px);
+      color: var(--text-secondary);
+      max-width: 540px;
+      margin: 0 auto 40px;
+      line-height: 1.5;
+    }
+    .hero-actions {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+
+    /* ── Buttons ── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--font-sans);
+      font-size: 15px;
+      font-weight: 600;
+      border-radius: 10px;
+      padding: 14px 28px;
+      border: none;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.15s;
+    }
+    .btn:active { transform: scale(0.97); }
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+    .btn-primary:hover {
+      background: var(--accent-hover);
+      color: #fff;
+    }
+    .btn-secondary {
+      background: var(--surface2);
+      color: var(--text-primary);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover {
+      background: var(--border);
+      color: #fff;
+    }
+    .btn-icon {
+      width: 18px;
+      height: 18px;
+      flex-shrink: 0;
+    }
+
+    /* ── Section headings ── */
+    .section-label {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 12px;
+    }
+    .section-title {
+      font-size: clamp(28px, 4vw, 40px);
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      margin-bottom: 16px;
+    }
+    .section-desc {
+      font-size: 17px;
+      color: var(--text-secondary);
+      max-width: 560px;
+      line-height: 1.6;
+    }
+    .section-header {
+      text-align: center;
+      margin-bottom: 64px;
+    }
+    .section-header .section-desc {
+      margin: 0 auto;
+    }
+
+    /* ── Visual showcase ── */
+    .showcase {
+      padding-top: 0;
+    }
+    .showcase-grid {
+      display: grid;
+      gap: 24px;
+    }
+    .showcase-item {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+      transition: border-color 0.25s;
+    }
+    .showcase-item:hover {
+      border-color: var(--text-placeholder);
+    }
+    .showcase-placeholder {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 400px;
+      color: var(--text-placeholder);
+      font-size: 14px;
+      font-family: var(--font-mono);
+    }
+    .showcase-item img {
+      width: 100%;
+      border-radius: 0;
+    }
+    .showcase-caption {
+      padding: 16px 20px;
+      font-size: 14px;
+      color: var(--text-secondary);
+      border-top: 1px solid var(--border);
+    }
+
+    /* ── Features ── */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 24px;
+    }
+    .feature-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 32px;
+      transition: border-color 0.25s, transform 0.2s;
+    }
+    .feature-card:hover {
+      border-color: var(--text-placeholder);
+      transform: translateY(-2px);
+    }
+    .feature-icon {
+      width: 44px;
+      height: 44px;
+      background: rgba(230, 57, 70, 0.1);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 20px;
+      font-size: 20px;
+    }
+    .feature-card h3 {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      letter-spacing: -0.01em;
+    }
+    .feature-card p {
+      font-size: 15px;
+      color: var(--text-secondary);
+      line-height: 1.55;
+    }
+
+    /* ── Steps ── */
+    .steps-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 24px;
+      counter-reset: step;
+    }
+    .step-card {
+      text-align: center;
+      padding: 32px 16px;
+      counter-increment: step;
+    }
+    .step-number {
+      width: 48px;
+      height: 48px;
+      background: rgba(230, 57, 70, 0.12);
+      border: 1px solid rgba(230, 57, 70, 0.25);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 20px;
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--accent);
+    }
+    .step-card h3 {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    .step-card p {
+      font-size: 14px;
+      color: var(--text-secondary);
+      line-height: 1.55;
+    }
+    .step-connector {
+      display: none; /* reserved for future SVG arrows */
+    }
+
+    /* ── Compatibility ── */
+    .compat {
+      background: var(--bg-secondary);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+    .compat-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 32px;
+    }
+    .compat-item h3 {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    .compat-item p {
+      font-size: 14px;
+      color: var(--text-secondary);
+      line-height: 1.55;
+    }
+    .compat-item code {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      background: var(--surface2);
+      padding: 2px 7px;
+      border-radius: 5px;
+      color: var(--info);
+    }
+
+    /* ── CTA ── */
+    .cta {
+      text-align: center;
+    }
+    .cta .section-title {
+      margin-bottom: 12px;
+    }
+    .cta .section-desc {
+      margin: 0 auto 36px;
+    }
+
+    /* ── Footer ── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 40px 0;
+    }
+    footer .container {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+    .footer-left {
+      font-size: 14px;
+      color: var(--text-secondary);
+    }
+    .footer-left span {
+      color: var(--text-placeholder);
+    }
+    .footer-links {
+      display: flex;
+      gap: 24px;
+    }
+    .footer-links a {
+      font-size: 14px;
+      color: var(--text-secondary);
+      transition: color 0.2s;
+    }
+    .footer-links a:hover { color: var(--text-primary); }
+
+    /* ── Responsive ── */
+    @media (max-width: 768px) {
+      :root { --section-gap: 80px; }
+      .features-grid { grid-template-columns: 1fr; }
+      .steps-grid { grid-template-columns: repeat(2, 1fr); }
+      .compat-grid { grid-template-columns: 1fr; }
+      .hero { padding-top: 140px; }
+      nav .nav-links { gap: 16px; }
+    }
+    @media (max-width: 480px) {
+      :root { --section-gap: 64px; }
+      .steps-grid { grid-template-columns: 1fr; }
+      .hero-actions { flex-direction: column; }
+      nav .nav-links { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ════════════════════════════════════════════
+       NAV
+       ════════════════════════════════════════════ -->
+  <nav>
+    <div class="container">
+      <a href="#" class="nav-logo">simcoach</a>
+      <div class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#how-it-works">How It Works</a>
+        <a href="#compatibility">Compatibility</a>
+        <a href="https://github.com/POWERRRRRRRFUL/simracing-ai-coach" target="_blank" rel="noopener">GitHub</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ════════════════════════════════════════════
+       HERO
+       ════════════════════════════════════════════ -->
+  <section class="hero">
+    <div class="container">
+      <div class="hero-badge">Open Source &middot; Windows</div>
+      <h1>simcoach</h1>
+      <p>AI-powered post-session racing coach for Assetto Corsa. Record telemetry, compare laps, and get actionable coaching&nbsp;&mdash;&nbsp;all locally.</p>
+      <div class="hero-actions">
+        <a href="#RELEASE_LINK" class="btn btn-primary">
+          <!-- Windows icon -->
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M3 12V6.75l8-1.25V12H3zm0 .5h8v6.5l-8-1.25V12.5zM11.5 5.4l9.5-1.4v8h-9.5V5.4zm0 7.1h9.5v8l-9.5-1.4v-6.6z"/></svg>
+          Download for Windows
+        </a>
+        <a href="https://github.com/POWERRRRRRRFUL/simracing-ai-coach" class="btn btn-secondary" target="_blank" rel="noopener">
+          <!-- GitHub icon -->
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482 0-.237-.009-.866-.013-1.7-2.782.604-3.369-1.34-3.369-1.34-.454-1.156-1.11-1.463-1.11-1.463-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.831.092-.646.35-1.086.636-1.336-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0112 6.836c.85.004 1.705.115 2.504.337 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.161 22 16.416 22 12c0-5.523-4.477-10-10-10z"/></svg>
+          View on GitHub
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════════════════════════════════════════════
+       VISUAL SHOWCASE
+       ════════════════════════════════════════════ -->
+  <section class="showcase">
+    <div class="container">
+      <div class="showcase-grid">
+
+        <div class="showcase-item">
+          <img src="images/desktop_gui.png" alt="simcoach desktop interface">
+          <div class="showcase-placeholder">[ GUI screenshot &mdash; images/desktop_gui.png ]</div>
+          <div class="showcase-caption">Desktop interface &mdash; configure your session, connect to Assetto Corsa, and start recording.</div>
+        </div>
+
+        <div class="showcase-item">
+          <img src="images/track_map_linked.gif" alt="interactive report demo">
+          <div class="showcase-placeholder">[ Report screenshot &mdash; images/full_report.png ]</div>
+          <div class="showcase-caption">AI-generated coaching report with interactive telemetry charts and track map.</div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ════════════════════════════════════════════
+       FEATURES
+       ════════════════════════════════════════════ -->
+  <section id="features">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-label">Features</div>
+        <h2 class="section-title">Everything you need to improve</h2>
+        <p class="section-desc">Structured analysis that turns raw telemetry into clear, actionable coaching.</p>
+      </div>
+
+      <div class="features-grid">
+
+        <div class="feature-card">
+          <div class="feature-icon">&#9201;</div>
+          <h3>Official lap timing</h3>
+          <p>Lap times are read directly from Assetto Corsa's shared memory — accurate and consistent with in-game timing.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">&#9878;</div>
+          <h3>Interactive telemetry &amp; track map</h3>
+          <p>Throttle, brake, speed, and steering traces linked to a live track map. Click any point to cross-reference position and data.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">&#128206;</div>
+          <h3>Click-to-sync analysis</h3>
+          <p>Click a corner in the AI coaching text and the charts and track map jump to that exact point — and vice versa.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">&#128259;</div>
+          <h3>Reference lap sharing</h3>
+          <p>Export your best laps as <code>.simcoachref</code> files. Share with friends or import others' reference laps to compare against.</p>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ════════════════════════════════════════════
+       HOW IT WORKS
+       ════════════════════════════════════════════ -->
+  <section id="how-it-works">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-label">How It Works</div>
+        <h2 class="section-title">Four steps to faster laps</h2>
+      </div>
+
+      <div class="steps-grid">
+
+        <div class="step-card">
+          <div class="step-number">1</div>
+          <h3>Download</h3>
+          <p>Grab the latest <code>.exe</code> from GitHub&nbsp;Releases. No install required — just run it.</p>
+        </div>
+
+        <div class="step-card">
+          <div class="step-number">2</div>
+          <h3>Add an API key</h3>
+          <p>Enter your API key for any OpenAI-compatible provider — DeepSeek, GPT, Claude, or a local model.</p>
+        </div>
+
+        <div class="step-card">
+          <div class="step-number">3</div>
+          <h3>Record a session</h3>
+          <p>Launch Assetto Corsa, hit Record, and drive. simcoach captures telemetry in real time via shared memory.</p>
+        </div>
+
+        <div class="step-card">
+          <div class="step-number">4</div>
+          <h3>Analyze</h3>
+          <p>Click Analyze to generate an interactive HTML report with AI coaching, telemetry charts, and track&nbsp;map.</p>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ════════════════════════════════════════════
+       COMPATIBILITY
+       ════════════════════════════════════════════ -->
+  <section id="compatibility" class="compat">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-label">Compatibility</div>
+        <h2 class="section-title">Bring your own LLM</h2>
+        <p class="section-desc">simcoach works with any provider that exposes an OpenAI-compatible chat endpoint.</p>
+      </div>
+
+      <div class="compat-grid">
+
+        <div class="compat-item">
+          <h3>Supported providers</h3>
+          <p>DeepSeek, OpenAI (GPT), Anthropic (Claude via compatible proxy), and any local server (Ollama, LM&nbsp;Studio, etc.).</p>
+        </div>
+
+        <div class="compat-item">
+          <h3>Configuration</h3>
+          <p>Set your <code>base_url</code>, <code>api_key</code>, and <code>model</code> in the GUI or <code>config.yaml</code>. That's it.</p>
+        </div>
+
+        <div class="compat-item">
+          <h3>A note on reasoning models</h3>
+          <p>Some reasoning / "think" models work well; others may hit provider-specific limitations. Results may vary — experiment and find what works best for you.</p>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ════════════════════════════════════════════
+       CTA
+       ════════════════════════════════════════════ -->
+  <section class="cta">
+    <div class="container">
+      <h2 class="section-title">Ready to get faster?</h2>
+      <p class="section-desc">Download simcoach, connect your favorite LLM, and start improving your lap times today.</p>
+      <a href="#RELEASE_LINK" class="btn btn-primary">
+        <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M3 12V6.75l8-1.25V12H3zm0 .5h8v6.5l-8-1.25V12.5zM11.5 5.4l9.5-1.4v8h-9.5V5.4zm0 7.1h9.5v8l-9.5-1.4v-6.6z"/></svg>
+        Download for Windows
+      </a>
+    </div>
+  </section>
+
+  <!-- ════════════════════════════════════════════
+       FOOTER
+       ════════════════════════════════════════════ -->
+  <footer>
+    <div class="container">
+      <div class="footer-left">
+        simcoach <span>&middot; <!-- VERSION_PLACEHOLDER -->v0.11.0</span> <span>&middot; MIT License</span>
+      </div>
+      <div class="footer-links">
+        <a href="https://github.com/POWERRRRRRRFUL/simracing-ai-coach" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/POWERRRRRRRFUL/simracing-ai-coach/releases" target="_blank" rel="noopener">Releases</a>
+        <a href="https://github.com/POWERRRRRRRFUL/simracing-ai-coach/issues" target="_blank" rel="noopener">Issues</a>
+      </div>
+    </div>
+  </footer>
+
+</body>
+</html>
