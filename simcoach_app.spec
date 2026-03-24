@@ -60,9 +60,7 @@ exe = EXE(
     strip=False,
     upx=True,
     console=False,  # No console window — GUI only
-    icon=str(src_root / "app" / "style" / "icons" / "app.ico")
-    if (src_root / "app" / "style" / "icons" / "app.ico").exists()
-    else None,
+    icon=str(src_root / "app" / "style" / "icons" / "app.ico"),
 )
 
 coll = COLLECT(
